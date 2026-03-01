@@ -1,5 +1,11 @@
 import { generateAgents, getAgents } from "./agentManager.js";
 
+let ioInstance = null;
+
+function setIO(io) {
+  ioInstance = io;
+}
+
 let city = {
   day: 0,
   taxRate: 0.1,
@@ -77,10 +83,22 @@ function runSimulationTrick() {
   city.unemployment = unemployedCount / city.agents.length;
   city.avyHappiness = happinessSum / city.agents.length;
 
-  console.log(
-    `Day ${city.day} | GDP: ${city.gdp.toFixed(0)}
-    | Crime: ${city.crimeCount} | Happiness: ${city.avyHappiness.toFixed(2)} | Unemployment: ${(city.unemployment * 100).toFixed(2)}%`,
-  );
+  // console.log(
+  //   `Day ${city.day} | GDP: ${city.gdp.toFixed(0)}
+  //   | Crime: ${city.crimeCount} | Happiness: ${city.avyHappiness.toFixed(2)} | Unemployment: ${(city.unemployment * 100).toFixed(2)}%`,
+  // );
+
+  // Emit data to connected clients
+  if (ioInstance) {
+    ioInstance.emit("worldUpdate", {
+      day: city.day,
+      taxRate: city.taxRate,
+      gdp: city.gdp,
+      crimeRate: city.crimeCount,
+      avgHappiness: city.avyHappiness,
+      unemployment: city.unemployment,
+    });
+  }
 }
 
 function startSimulation() {
@@ -88,4 +106,4 @@ function startSimulation() {
   setInterval(runSimulationTrick, 1000);
 }
 
-export { startSimulation, city };
+export { startSimulation, city, setIO };
