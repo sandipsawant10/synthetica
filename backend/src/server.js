@@ -1,7 +1,8 @@
 import express from "express";
 import http from "http";
+import cors from "cors";
 import { Server } from "socket.io";
-import { startSimulation, setIO } from "./simulation/simulationEngine.js";
+import { startSimulation, setIO, city } from "./simulation/simulationEngine.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -22,6 +23,31 @@ io.on("connection", (socket) => {
 });
 
 setIO(io);
+
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  }),
+);
+app.use(express.json());
+
+app.post("/policy/tax", (req, res) => {
+  const { taxRate } = req.body;
+
+  if (taxRate >= 0 && taxRate <= 0.5) {
+    city.taxRate = taxRate;
+    return res.json({
+      success: true,
+      message: `Tax rate updated to ${taxRate}`,
+    });
+  }
+  res.status(400).json({
+    success: false,
+    message: "Invalid tax rate. Must be between 0 and 0.5.",
+  });
+});
 
 const PORT = process.env.PORT || 3000;
 

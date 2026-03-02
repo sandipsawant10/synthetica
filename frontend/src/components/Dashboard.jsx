@@ -22,6 +22,29 @@ function Dashboard() {
     };
   }, []);
 
+  const handleTaxChange = async (e) => {
+    const newTax = parseFloat(e.target.value);
+
+    // Update local state immediately for responsive UI
+    setWorldState((prev) => ({ ...prev, taxRate: newTax }));
+
+    try {
+      const response = await fetch("http://localhost:3000/policy/tax", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ taxRate: newTax }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to update tax rate:", response.status);
+      }
+    } catch (error) {
+      console.error("Error updating tax rate:", error);
+    }
+  };
+
   return (
     <div>
       <h2>Day: {worldState.day}</h2>
@@ -30,6 +53,18 @@ function Dashboard() {
       <p>Happiness: {worldState.avgHappiness.toFixed(2)}</p>
       <p>Unemployment: {(worldState.unemployment * 100).toFixed(2)}%</p>
       <p>Tax Rate: {(worldState.taxRate * 100).toFixed(2)}%</p>
+
+      <label>
+        Tax Rate: {(worldState.taxRate * 100).toFixed(0)}%
+        <input
+          type="range"
+          min="0"
+          max="0.5"
+          step="0.01"
+          value={worldState.taxRate}
+          onChange={handleTaxChange}
+        />
+      </label>
     </div>
   );
 }
