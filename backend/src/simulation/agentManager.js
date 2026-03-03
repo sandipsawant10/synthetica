@@ -11,6 +11,8 @@ function generateAgents(count) {
       employed: Math.random() > 0.2, // 80% chance of being employed
       risk: Math.random(),
       spending: Math.random() * 0.5 + 0.3, // Random spending between 0.3 and 0.8
+      savings: 0,
+      totalWealth: 0,
     });
   }
   return agents;

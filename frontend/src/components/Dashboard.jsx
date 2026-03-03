@@ -9,6 +9,9 @@ function Dashboard() {
     avgHappiness: 0,
     unemployment: 0,
     taxRate: 0,
+    topTenWealthShare: 0,
+    bottomFiftyWealthShare: 0,
+    totalWealth: 0,
   });
 
   useEffect(() => {
@@ -53,7 +56,9 @@ function Dashboard() {
       <p>Happiness: {worldState.avgHappiness.toFixed(2)}</p>
       <p>Unemployment: {(worldState.unemployment * 100).toFixed(2)}%</p>
       <p>Tax Rate: {(worldState.taxRate * 100).toFixed(2)}%</p>
-
+      <p>Top 10% Wealth Share: {(worldState.topTenWealthShare * 100).toFixed(2)}%</p>
+      <p>Bottom 50% Wealth Share: {(worldState.bottomFiftyWealthShare * 100).toFixed(2)}%</p>
+      <p>Total Wealth: {worldState.totalWealth.toFixed(0)}</p>
       <label>
         Tax Rate: {(worldState.taxRate * 100).toFixed(0)}%
         <input
