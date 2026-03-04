@@ -1,4 +1,23 @@
-import { generateAgents, getAgents } from "./agentManager.js";
+import { generateAgents, getAgentCount } from "./agentManager.js";
+import {
+  agentCount,
+  income,
+  happiness,
+  employed,
+  savings,
+  wealth,
+  capital,
+  risk,
+  spending,
+  panic,
+} from "./agentState.js";
+import { processAgentEconomy } from "./economyModel.js";
+import { processCrime } from "./crimeModel.js";
+import {
+  processPanicSpread,
+  processFakeNewsEvent,
+} from "./misinformationModel.js";
+import { shouldActivateStimulus } from "./policyController.js";
 
 let ioInstance = null;
 
@@ -9,7 +28,6 @@ function setIO(io) {
 let city = {
   day: 0,
   taxRate: 0.1,
-  agents: [],
   gdp: 0,
   crimeCount: 0,
   unemployment: 0,
@@ -17,10 +35,12 @@ let city = {
   totalWealth: 0,
   topTenWealthShare: 0,
   bottomFiftyWealthShare: 0,
+  stimulusActive: false,
+  fakeNewsEvent: false,
 };
 
 function initializeCity() {
-  city.agents = generateAgents(1000);
+  generateAgents(1000);
 }
 
 function runSimulationTrick() {
@@ -28,143 +48,86 @@ function runSimulationTrick() {
   city.gdp = 0;
   city.crimeCount = 0;
 
+  city.fakeNewsEvent = processFakeNewsEvent();
+  processPanicSpread();
+
   let happinessSum = 0;
   let unemployedCount = 0;
 
-  for (let index = 0; index < city.agents.length; index++) {
-    const agent = city.agents[index];
-
-    let baseIncome = agent.income;
-
-    if (!agent.employed) {
-      baseIncome = agent.income * 0.25; // Unemployed get 25% of their income as benefits
-    }
-
-    let savingsRate = agent.spending;
-
-    //Rich save more
-    if (agent.income > 80000) {
-      savingsRate = 0.4;
-    }
-
-    // Poor save less
-    if (agent.income < 40000) {
-      savingsRate = 0.8;
-    }
-
-    const effectiveIncome = baseIncome * (1 - city.taxRate);
-    const spendingAmount = effectiveIncome * savingsRate;
-    const savedAmount = effectiveIncome - spendingAmount;
-
-    agent.savings += savedAmount;
-    agent.totalWealth = agent.savings;
-
-    // Investment returns on accumulated wealth
-    let investmentReturnRate = 0.0015; // 0.2% per day
-
-    // if (agent.totalWealth > 200000) {
-    //   investmentReturnRate = 0.004; // 0.4% for wealthier agents
-    // }
-    agent.totalWealth += agent.totalWealth * investmentReturnRate;
-
-    // Random financial shock for low income agents
-    if (agent.income < 40000 && Math.random() < 0.02) {
-      const shock = agent.totalWealth * 0.05; // 5% loss
-      agent.totalWealth -= shock;
-    }
+  for (let i = 0; i < agentCount; i++) {
+    // Process economy for this agent
+    const spendingAmount = processAgentEconomy(
+      i,
+      city.taxRate,
+      city.stimulusActive,
+      city.gdp,
+    );
 
     city.gdp += spendingAmount;
 
-    if (city.gdp < 18000000){
-      city.stimulusActive = true;
+    // Update happiness
+    if (!employed[i]) {
+      happiness[i] -= 0.03;
     } else {
-      city.stimulusActive = false;
+      happiness[i] += 0.01;
     }
 
-    if (!agent.employed) {
-      agent.happiness -= 0.03;
-    } else {
-      agent.happiness += 0.01;
-    }
+    happiness[i] -= city.taxRate * 0.03;
+    happiness[i] -= panic[i] * 0.02;
 
-    agent.happiness -= city.taxRate * 0.03;
+    happiness[i] = Math.max(0, Math.min(1, happiness[i]));
 
-    agent.happiness = Math.max(0, Math.min(1, agent.happiness));
-
-    if (!agent.employed) {
+    if (!employed[i]) {
       unemployedCount++;
     }
 
-    // job loss
-    if (agent.employed && Math.random() < 0.008) {
-      agent.employed = false;
-    }
-
-    let hiringMultiplier = 1;
-
-    if(city.stimulusActive) {
-      hiringMultiplier = 2;
-    }
-
-    if(!agent.employed && Math.random() < 0.01 * hiringMultiplier) {
-      agent.employed = true;
-    }
-
-    // rehiring based on economic conditions
-    const economicStrength = city.gdp / 25000000; // normalize approx
-
-    
-    if (!agent.employed && Math.random() < 0.01 * economicStrength) {
-      agent.employed = true;
-    }
-
-    const stress = 1 - agent.happiness;
-
-    const economicPressure = city.unemployment;
-
-    const crimeProbability =
-      stress * agent.risk * (0.5 * city.taxRate + 0.5 * economicPressure);
-
-    if (Math.random() < crimeProbability) {
+    // Process crime
+    if (processCrime(i, city.taxRate, city.unemployment)) {
       city.crimeCount++;
     }
 
-    happinessSum += agent.happiness;
+    happinessSum += happiness[i];
   }
 
-  city.unemployment = unemployedCount / city.agents.length;
-  city.avyHappiness = happinessSum / city.agents.length;
+  city.unemployment = unemployedCount / agentCount;
+  city.avyHappiness = happinessSum / agentCount;
+
+  // Update stimulus status
+  city.stimulusActive = shouldActivateStimulus(city.gdp);
 
   console.log(
     `Day ${city.day} | GDP: ${city.gdp.toFixed(0)}
     | Crime: ${city.crimeCount} | Happiness: ${city.avyHappiness.toFixed(2)} | Unemployment: ${(city.unemployment * 100).toFixed(2)}% | Tax: ${(city.taxRate * 100).toFixed(2)}% | Total Wealth: ${city.totalWealth.toFixed(0)} | Top 10% Wealth Share: ${(city.topTenWealthShare * 100).toFixed(2)}% | Bottom 50% Wealth Share: ${(city.bottomFiftyWealthShare * 100).toFixed(2)}%`,
   );
 
-  const sortedAgents = [...city.agents].sort(
-    (a, b) => b.totalWealth - a.totalWealth,
+  // Create array of indices sorted by wealth
+  const indices = new Uint32Array(agentCount);
+  for (let i = 0; i < agentCount; i++) {
+    indices[i] = i;
+  }
+
+  // Sort indices by wealth (descending)
+  const sortedIndices = Array.from(indices).sort(
+    (a, b) => wealth[b] - wealth[a],
   );
 
-  const topTenWealthCount = Math.floor(sortedAgents.length * 0.1);
-  const bottomFiftyPercentCount = Math.floor(sortedAgents.length * 0.5);
+  const topTenWealthCount = Math.floor(agentCount * 0.1);
+  const bottomFiftyPercentCount = Math.floor(agentCount * 0.5);
 
   let totalWealth = 0;
   let topWealth = 0;
   let bottomWealth = 0;
 
-  for (let i = 0; i < sortedAgents.length; i++) {
-    totalWealth += sortedAgents[i].totalWealth;
+  for (let i = 0; i < agentCount; i++) {
+    totalWealth += wealth[i];
   }
 
   for (let i = 0; i < topTenWealthCount; i++) {
-    topWealth += sortedAgents[i].totalWealth;
+    topWealth += wealth[sortedIndices[i]];
   }
 
-  for (
-    let i = sortedAgents.length - bottomFiftyPercentCount;
-    i < sortedAgents.length;
-    i++
-  ) {
-    bottomWealth += sortedAgents[i].totalWealth;
+  for (let i = agentCount - bottomFiftyPercentCount; i < agentCount; i++) {
+    bottomWealth += wealth[sortedIndices[i]];
   }
 
   city.totalWealth = totalWealth;
@@ -184,6 +147,7 @@ function runSimulationTrick() {
       topTenWealthShare: city.topTenWealthShare,
       bottomFiftyWealthShare: city.bottomFiftyWealthShare,
       totalWealth: city.totalWealth,
+      fakeNewsEvent: city.fakeNewsEvent,
     });
   }
 }

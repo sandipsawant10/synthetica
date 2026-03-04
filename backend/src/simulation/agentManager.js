@@ -1,25 +1,50 @@
-let agents = [];
+import {
+  agentCount,
+  income,
+  happiness,
+  employed,
+  savings,
+  wealth,
+  capital,
+  risk,
+  spending,
+  influence,
+  trust,
+  panic,
+  connections,
+} from "./agentState.js";
 
 function generateAgents(count) {
-  agents = [];
+  connections.length = 0;
 
-  for (let index = 0; index < count; index++) {
-    agents.push({
-      id: index,
-      income: Math.floor(Math.random() * 80000) + 20000, // Random income between 20k and 100k
-      happiness: Math.random() * 0.4 + 0.4, // Random happiness between 0.4 and 0.8
-      employed: Math.random() > 0.2, // 80% chance of being employed
-      risk: Math.random(),
-      spending: Math.random() * 0.5 + 0.3, // Random spending between 0.3 and 0.8
-      savings: 0,
-      totalWealth: 0,
-    });
+  for (let i = 0; i < agentCount; i++) {
+    const neighbors = [];
+
+    for (let j = 0; j < 10; j++) {
+      neighbors.push(Math.floor(Math.random() * agentCount));
+    }
+
+    connections.push(neighbors);
+
+    income[i] = Math.floor(Math.random() * 80000) + 20000; // Random income between 20k and 100k
+    happiness[i] = Math.random() * 0.4 + 0.4; // Random happiness between 0.4 and 0.8
+    employed[i] = Math.random() > 0.2 ? 1 : 0; // 80% chance of being employed
+    risk[i] = Math.random();
+    spending[i] = Math.random() * 0.5 + 0.3; // Random spending between 0.3 and 0.8
+    influence[i] = Math.random();
+    trust[i] = Math.random();
+    panic[i] = 0;
+    savings[i] = 0;
+    wealth[i] = 0;
+    capital[i] = 0;
+
+    capital[i] = savings[i] * 0.3;
   }
-  return agents;
+  return agentCount;
 }
 
-function getAgents() {
-  return agents;
+function getAgentCount() {
+  return agentCount;
 }
 
-export { generateAgents, getAgents };
+export { generateAgents, getAgentCount };
