@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import socket from "../services/socketService";
 import PanicHeatmap from "./PanicHeatmap";
+import CrimeChart from "./CrimeChart";
+import GDPChart from "./GDPChart";
 
 function Dashboard() {
   const [isTogglingFakeNews, setIsTogglingFakeNews] = useState(false);
@@ -100,6 +102,10 @@ function Dashboard() {
       <p>Average Panic: {avgPanic.toFixed(3)}</p>
       <p>Max Panic: {maxPanic.toFixed(3)}</p>
       <PanicHeatmap panicLevels={worldState.panicLevels} />
+      <CrimeChart />
+      <br />
+      <br />
+      <GDPChart />
 
       <button
         type="button"

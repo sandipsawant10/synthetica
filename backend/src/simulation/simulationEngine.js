@@ -19,6 +19,7 @@ import {
   triggerFakeNewsEvent,
 } from "./misinformationModel.js";
 import { shouldActivateStimulus } from "./policyController.js";
+import { recordSnapshot, getHistory } from "./historyManger.js";
 
 let ioInstance = null;
 let forceFakeNewsNextTick = false;
@@ -152,6 +153,9 @@ function runSimulationTrick() {
 
   tickCount++;
 
+  // Record historical data
+  recordSnapshot(city);
+
   // Emit data to connected clients
   if (ioInstance) {
     // Fast stream: real-time metrics (every tick)
@@ -174,6 +178,8 @@ function runSimulationTrick() {
         bottomFiftyWealthShare: city.bottomFiftyWealthShare,
         totalWealth: city.totalWealth,
       });
+
+      ioInstance.emit("historyUpdate", getHistory());
     }
   }
 }

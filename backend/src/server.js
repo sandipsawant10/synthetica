@@ -10,6 +10,7 @@ import {
   toggleAutoFakeNews,
   getAutoFakeNewsEnabled,
 } from "./simulation/simulationEngine.js";
+import { getHistory } from "./simulation/historyManger.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -79,6 +80,13 @@ app.get("/policy/fake-news/toggle", (req, res) => {
   return res.json({
     success: true,
     autoFakeNewsEnabled: getAutoFakeNewsEnabled(),
+  });
+});
+
+app.get("/history", (req, res) => {
+  return res.json({
+    success: true,
+    data: getHistory(),
   });
 });
 
