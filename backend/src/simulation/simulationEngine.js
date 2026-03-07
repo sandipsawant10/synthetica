@@ -16,10 +16,14 @@ import { processCrime } from "./crimeModel.js";
 import {
   processPanicSpread,
   processFakeNewsEvent,
+  triggerFakeNewsEvent,
 } from "./misinformationModel.js";
 import { shouldActivateStimulus } from "./policyController.js";
 
 let ioInstance = null;
+let forceFakeNewsNextTick = false;
+let autoFakeNewsEnabled = false;
+let tickCount = 0;
 
 function setIO(io) {
   ioInstance = io;
@@ -48,7 +52,15 @@ function runSimulationTrick() {
   city.gdp = 0;
   city.crimeCount = 0;
 
-  city.fakeNewsEvent = processFakeNewsEvent();
+  let fakeNewsTriggeredThisTick = false;
+
+  if (forceFakeNewsNextTick || autoFakeNewsEnabled) {
+    triggerFakeNewsEvent();
+    fakeNewsTriggeredThisTick = true;
+    forceFakeNewsNextTick = false;
+  } else {
+    fakeNewsTriggeredThisTick = processFakeNewsEvent();
+  }
   processPanicSpread();
 
   let happinessSum = 0;
@@ -91,14 +103,10 @@ function runSimulationTrick() {
 
   city.unemployment = unemployedCount / agentCount;
   city.avyHappiness = happinessSum / agentCount;
+  city.fakeNewsEvent = fakeNewsTriggeredThisTick || autoFakeNewsEnabled;
 
   // Update stimulus status
   city.stimulusActive = shouldActivateStimulus(city.gdp);
-
-  console.log(
-    `Day ${city.day} | GDP: ${city.gdp.toFixed(0)}
-    | Crime: ${city.crimeCount} | Happiness: ${city.avyHappiness.toFixed(2)} | Unemployment: ${(city.unemployment * 100).toFixed(2)}% | Tax: ${(city.taxRate * 100).toFixed(2)}% | Total Wealth: ${city.totalWealth.toFixed(0)} | Top 10% Wealth Share: ${(city.topTenWealthShare * 100).toFixed(2)}% | Bottom 50% Wealth Share: ${(city.bottomFiftyWealthShare * 100).toFixed(2)}%`,
-  );
 
   // Create array of indices sorted by wealth
   const indices = new Uint32Array(agentCount);
@@ -135,20 +143,38 @@ function runSimulationTrick() {
   city.bottomFiftyWealthShare =
     totalWealth === 0 ? 0 : bottomWealth / totalWealth;
 
+  const avgPanic = panic.reduce((sum, value) => sum + value, 0) / agentCount;
+  const maxPanic = Math.max(...panic);
+
+  console.log(
+    `Day: ${city.day} | GDP: ${city.gdp.toFixed(0)} | Crime Rate: ${city.crimeCount} | Happiness: ${city.avyHappiness.toFixed(2)} | Unemployment: ${(city.unemployment * 100).toFixed(2)}% | Tax Rate: ${(city.taxRate * 100).toFixed(2)}% | Top 10% Wealth Share: ${(city.topTenWealthShare * 100).toFixed(2)}% | Bottom 50% Wealth Share: ${(city.bottomFiftyWealthShare * 100).toFixed(2)}% | Total Wealth: ${city.totalWealth.toFixed(0)} | Fake News Event: ${city.fakeNewsEvent ? "Yes" : "No"} | Average Panic: ${avgPanic.toFixed(3)} | Max Panic: ${maxPanic.toFixed(3)}`,
+  );
+
+  tickCount++;
+
   // Emit data to connected clients
   if (ioInstance) {
-    ioInstance.emit("worldUpdate", {
+    // Fast stream: real-time metrics (every tick)
+    ioInstance.emit("fastUpdate", {
       day: city.day,
-      taxRate: city.taxRate,
       gdp: city.gdp,
       crimeRate: city.crimeCount,
       avgHappiness: city.avyHappiness,
       unemployment: city.unemployment,
-      topTenWealthShare: city.topTenWealthShare,
-      bottomFiftyWealthShare: city.bottomFiftyWealthShare,
-      totalWealth: city.totalWealth,
       fakeNewsEvent: city.fakeNewsEvent,
+      autoFakeNewsEnabled,
+      panicLevels: Array.from(panic),
     });
+
+    // Slow stream: heavy analytics (every 5 ticks)
+    if (tickCount % 5 === 0) {
+      ioInstance.emit("slowUpdate", {
+        taxRate: city.taxRate,
+        topTenWealthShare: city.topTenWealthShare,
+        bottomFiftyWealthShare: city.bottomFiftyWealthShare,
+        totalWealth: city.totalWealth,
+      });
+    }
   }
 }
 
@@ -157,4 +183,24 @@ function startSimulation() {
   setInterval(runSimulationTrick, 1000);
 }
 
-export { startSimulation, city, setIO };
+function triggerFakeNewsNow() {
+  forceFakeNewsNextTick = true;
+}
+
+function toggleAutoFakeNews() {
+  autoFakeNewsEnabled = !autoFakeNewsEnabled;
+  return autoFakeNewsEnabled;
+}
+
+function getAutoFakeNewsEnabled() {
+  return autoFakeNewsEnabled;
+}
+
+export {
+  startSimulation,
+  city,
+  setIO,
+  triggerFakeNewsNow,
+  toggleAutoFakeNews,
+  getAutoFakeNewsEnabled,
+};

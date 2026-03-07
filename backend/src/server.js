@@ -2,7 +2,14 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
-import { startSimulation, setIO, city } from "./simulation/simulationEngine.js";
+import {
+  startSimulation,
+  setIO,
+  city,
+  triggerFakeNewsNow,
+  toggleAutoFakeNews,
+  getAutoFakeNewsEnabled,
+} from "./simulation/simulationEngine.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -46,6 +53,32 @@ app.post("/policy/tax", (req, res) => {
   res.status(400).json({
     success: false,
     message: "Invalid tax rate. Must be between 0 and 0.5.",
+  });
+});
+
+app.post("/policy/fake-news", (req, res) => {
+  triggerFakeNewsNow();
+  return res.json({
+    success: true,
+    message: "Fake news event will trigger on the next simulation tick.",
+  });
+});
+
+app.post("/policy/fake-news/toggle", (req, res) => {
+  const enabled = toggleAutoFakeNews();
+  return res.json({
+    success: true,
+    autoFakeNewsEnabled: enabled,
+    message: enabled
+      ? "Auto fake-news triggering started."
+      : "Auto fake-news triggering stopped.",
+  });
+});
+
+app.get("/policy/fake-news/toggle", (req, res) => {
+  return res.json({
+    success: true,
+    autoFakeNewsEnabled: getAutoFakeNewsEnabled(),
   });
 });
 
