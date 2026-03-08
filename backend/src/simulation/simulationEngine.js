@@ -20,11 +20,14 @@ import {
 } from "./misinformationModel.js";
 import { shouldActivateStimulus } from "./policyController.js";
 import { recordSnapshot, getHistory } from "./historyManger.js";
+import { getPolicy } from "./policyEngine.js";
 
 let ioInstance = null;
 let forceFakeNewsNextTick = false;
 let autoFakeNewsEnabled = false;
 let tickCount = 0;
+let simulationRunning = true;
+let intervalHandle = null;
 
 function setIO(io) {
   ioInstance = io;
@@ -32,8 +35,6 @@ function setIO(io) {
 
 let city = {
   day: 0,
-  taxRate: 0.1,
-  policeStrength: 0.2,
   gdp: 0,
   crimeCount: 0,
   unemployment: 0,
@@ -50,6 +51,10 @@ function initializeCity() {
 }
 
 function runSimulationTrick() {
+  if (!simulationRunning) return;
+
+  const policy = getPolicy();
+
   city.day++;
   city.gdp = 0;
   city.crimeCount = 0;
@@ -72,7 +77,6 @@ function runSimulationTrick() {
     // Process economy for this agent
     const spendingAmount = processAgentEconomy(
       i,
-      city.taxRate,
       city.stimulusActive,
       city.gdp,
     );
@@ -86,7 +90,7 @@ function runSimulationTrick() {
       happiness[i] += 0.01;
     }
 
-    happiness[i] -= city.taxRate * 0.03;
+    happiness[i] -= policy.taxRate * 0.03;
     happiness[i] -= panic[i] * 0.02;
 
     happiness[i] = Math.max(0, Math.min(1, happiness[i]));
@@ -96,7 +100,7 @@ function runSimulationTrick() {
     }
 
     // Process crime
-    if (processCrime(i, city.taxRate, city.unemployment, city.policeStrength)) {
+    if (processCrime(i, city.unemployment)) {
       city.crimeCount++;
     }
 
@@ -149,7 +153,7 @@ function runSimulationTrick() {
   const maxPanic = Math.max(...panic);
 
   console.log(
-    `Day: ${city.day} | GDP: ${city.gdp.toFixed(0)} | Crime Rate: ${city.crimeCount} | Happiness: ${city.avyHappiness.toFixed(2)} | Unemployment: ${(city.unemployment * 100).toFixed(2)}% | Tax Rate: ${(city.taxRate * 100).toFixed(2)}% | Police Funding: ${(city.policeStrength * 100).toFixed(2)}% | Top 10% Wealth Share: ${(city.topTenWealthShare * 100).toFixed(2)}% | Bottom 50% Wealth Share: ${(city.bottomFiftyWealthShare * 100).toFixed(2)}% | Total Wealth: ${city.totalWealth.toFixed(0)} | Fake News Event: ${city.fakeNewsEvent ? "Yes" : "No"} | Average Panic: ${avgPanic.toFixed(3)} | Max Panic: ${maxPanic.toFixed(3)}`,
+    `Day: ${city.day} | GDP: ${city.gdp.toFixed(0)} | Crime Rate: ${city.crimeCount} | Happiness: ${city.avyHappiness.toFixed(2)} | Unemployment: ${(city.unemployment * 100).toFixed(2)}% | Tax Rate: ${(policy.taxRate * 100).toFixed(2)}% | Police Funding: ${(policy.policeStrength * 100).toFixed(2)}% | Top 10% Wealth Share: ${(city.topTenWealthShare * 100).toFixed(2)}% | Bottom 50% Wealth Share: ${(city.bottomFiftyWealthShare * 100).toFixed(2)}% | Total Wealth: ${city.totalWealth.toFixed(0)} | Fake News Event: ${city.fakeNewsEvent ? "Yes" : "No"} | Average Panic: ${avgPanic.toFixed(3)} | Max Panic: ${maxPanic.toFixed(3)}`,
   );
 
   tickCount++;
@@ -166,7 +170,7 @@ function runSimulationTrick() {
       crimeRate: city.crimeCount,
       avgHappiness: city.avyHappiness,
       unemployment: city.unemployment,
-      policeStrength: city.policeStrength,
+      policeStrength: policy.policeStrength,
       fakeNewsEvent: city.fakeNewsEvent,
       autoFakeNewsEnabled,
       panicLevels: Array.from(panic),
@@ -175,8 +179,8 @@ function runSimulationTrick() {
     // Slow stream: heavy analytics (every 5 ticks)
     if (tickCount % 5 === 0) {
       ioInstance.emit("slowUpdate", {
-        taxRate: city.taxRate,
-        policeStrength: city.policeStrength,
+        taxRate: policy.taxRate,
+        policeStrength: policy.policeStrength,
         topTenWealthShare: city.topTenWealthShare,
         bottomFiftyWealthShare: city.bottomFiftyWealthShare,
         totalWealth: city.totalWealth,
@@ -189,7 +193,60 @@ function runSimulationTrick() {
 
 function startSimulation() {
   initializeCity();
-  setInterval(runSimulationTrick, 1000);
+  simulationRunning = true;
+  if (!intervalHandle) {
+    intervalHandle = setInterval(runSimulationTrick, 1000);
+  }
+}
+
+function pauseSimulation() {
+  simulationRunning = false;
+}
+
+function resumeSimulation() {
+  simulationRunning = true;
+}
+
+function stepSimulation() {
+  runSimulationTrick();
+}
+
+function resetSimulation() {
+  // Clear interval and restart
+  if (intervalHandle) {
+    clearInterval(intervalHandle);
+    intervalHandle = null;
+  }
+
+  // Reset state
+  city.day = 0;
+  city.gdp = 0;
+  city.crimeCount = 0;
+  city.unemployment = 0;
+  city.avyHappiness = 0;
+  city.totalWealth = 0;
+  city.topTenWealthShare = 0;
+  city.bottomFiftyWealthShare = 0;
+  city.stimulusActive = false;
+  city.fakeNewsEvent = false;
+
+  forceFakeNewsNextTick = false;
+  autoFakeNewsEnabled = false;
+  tickCount = 0;
+  simulationRunning = true;
+
+  // Reinitialize agents
+  initializeCity();
+
+  // Restart interval
+  intervalHandle = setInterval(runSimulationTrick, 1000);
+}
+
+function getSimulationStatus() {
+  return {
+    running: simulationRunning,
+    day: city.day,
+  };
 }
 
 function triggerFakeNewsNow() {
@@ -207,7 +264,11 @@ function getAutoFakeNewsEnabled() {
 
 export {
   startSimulation,
-  city,
+  pauseSimulation,
+  resumeSimulation,
+  stepSimulation,
+  resetSimulation,
+  getSimulationStatus,
   setIO,
   triggerFakeNewsNow,
   toggleAutoFakeNews,

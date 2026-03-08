@@ -9,20 +9,25 @@ import {
   spending,
   panic,
 } from "./agentState.js";
+import { getPolicy } from "./policyEngine.js";
+import {
+  calculateUnemploymentBenefit,
+  getHiringMultiplier,
+} from "./policyController.js";
 
 /**
  * Process economic cycle for a single agent
  * @param {number} i - Agent index
- * @param {number} taxRate - Current tax rate
  * @param {boolean} stimulusActive - Whether stimulus is active
  * @param {number} currentGdp - Current GDP for employment calculations
  * @returns {number} - Spending amount that contributes to GDP
  */
-function processAgentEconomy(i, taxRate, stimulusActive, currentGdp) {
+function processAgentEconomy(i, stimulusActive, currentGdp) {
   let baseIncome = income[i];
+  const policy = getPolicy();
 
   if (!employed[i]) {
-    baseIncome = income[i] * 0.25; // Unemployed get 25% of their income as benefits
+    baseIncome = calculateUnemploymentBenefit(income[i]);
   }
 
   spending[i] *= 1 - panic[i] * 0.3;
@@ -39,7 +44,7 @@ function processAgentEconomy(i, taxRate, stimulusActive, currentGdp) {
     spendingRate = 0.8;
   }
 
-  const effectiveIncome = baseIncome * (1 - taxRate);
+  const effectiveIncome = baseIncome * (1 - policy.taxRate);
   const spendingAmount = effectiveIncome * spendingRate;
   const savedAmount = effectiveIncome - spendingAmount;
 
@@ -100,11 +105,7 @@ function processEmploymentChanges(i, stimulusActive, currentGdp) {
     return;
   }
 
-  let hiringMultiplier = 1;
-
-  if (stimulusActive) {
-    hiringMultiplier = 2;
-  }
+  const hiringMultiplier = getHiringMultiplier(stimulusActive);
 
   if (!employed[i] && Math.random() < 0.005 * hiringMultiplier) {
     employed[i] = 1;

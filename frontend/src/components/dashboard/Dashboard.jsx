@@ -1,9 +1,12 @@
 import { useState } from "react";
 import {
-  updateTaxRate,
-  updatePoliceStrength,
+  updatePolicy,
   toggleFakeNews,
   triggerEconomicShock,
+  pauseSimulation,
+  resumeSimulation,
+  stepSimulation,
+  resetSimulation,
 } from "../../services/simulationService";
 import useSimulationStream from "../../hooks/useSimulationStream";
 import PanicHeatmap from "../PanicHeatmap";
@@ -23,7 +26,7 @@ function Dashboard() {
     mergeWorldState({ taxRate: newTax });
 
     try {
-      await updateTaxRate(newTax);
+      await updatePolicy({ taxRate: newTax });
     } catch (error) {
       console.error("Error updating tax rate:", error);
     }
@@ -35,7 +38,7 @@ function Dashboard() {
     mergeWorldState({ policeStrength: newPoliceStrength });
 
     try {
-      await updatePoliceStrength(newPoliceStrength);
+      await updatePolicy({ policeStrength: newPoliceStrength });
     } catch (error) {
       console.error("Error updating police funding:", error);
     }
@@ -62,6 +65,38 @@ function Dashboard() {
       await triggerEconomicShock();
     } catch (error) {
       console.error("Error triggering economic shock:", error);
+    }
+  };
+
+  const handlePause = async () => {
+    try {
+      await pauseSimulation();
+    } catch (error) {
+      console.error("Error pausing simulation:", error);
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      await resumeSimulation();
+    } catch (error) {
+      console.error("Error resuming simulation:", error);
+    }
+  };
+
+  const handleStep = async () => {
+    try {
+      await stepSimulation();
+    } catch (error) {
+      console.error("Error stepping simulation:", error);
+    }
+  };
+
+  const handleReset = async () => {
+    try {
+      await resetSimulation();
+    } catch (error) {
+      console.error("Error resetting simulation:", error);
     }
   };
 
@@ -93,6 +128,10 @@ function Dashboard() {
         onTriggerEconomicShock={handleTriggerEconomicShock}
         onTaxChange={handleTaxChange}
         onPoliceFundingChange={handlePoliceFundingChange}
+        onPause={handlePause}
+        onResume={handleResume}
+        onStep={handleStep}
+        onReset={handleReset}
       />
     </div>
   );
