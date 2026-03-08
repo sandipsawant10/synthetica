@@ -11,7 +11,7 @@ import {
   spending,
   panic,
 } from "./agentState.js";
-import { processAgentEconomy } from "./economyModel.js";
+import { processAgentEconomy, triggerEconomicShock } from "./economyModel.js";
 import { processCrime } from "./crimeModel.js";
 import {
   processPanicSpread,
@@ -33,6 +33,7 @@ function setIO(io) {
 let city = {
   day: 0,
   taxRate: 0.1,
+  policeStrength: 0.2,
   gdp: 0,
   crimeCount: 0,
   unemployment: 0,
@@ -95,7 +96,7 @@ function runSimulationTrick() {
     }
 
     // Process crime
-    if (processCrime(i, city.taxRate, city.unemployment)) {
+    if (processCrime(i, city.taxRate, city.unemployment, city.policeStrength)) {
       city.crimeCount++;
     }
 
@@ -148,7 +149,7 @@ function runSimulationTrick() {
   const maxPanic = Math.max(...panic);
 
   console.log(
-    `Day: ${city.day} | GDP: ${city.gdp.toFixed(0)} | Crime Rate: ${city.crimeCount} | Happiness: ${city.avyHappiness.toFixed(2)} | Unemployment: ${(city.unemployment * 100).toFixed(2)}% | Tax Rate: ${(city.taxRate * 100).toFixed(2)}% | Top 10% Wealth Share: ${(city.topTenWealthShare * 100).toFixed(2)}% | Bottom 50% Wealth Share: ${(city.bottomFiftyWealthShare * 100).toFixed(2)}% | Total Wealth: ${city.totalWealth.toFixed(0)} | Fake News Event: ${city.fakeNewsEvent ? "Yes" : "No"} | Average Panic: ${avgPanic.toFixed(3)} | Max Panic: ${maxPanic.toFixed(3)}`,
+    `Day: ${city.day} | GDP: ${city.gdp.toFixed(0)} | Crime Rate: ${city.crimeCount} | Happiness: ${city.avyHappiness.toFixed(2)} | Unemployment: ${(city.unemployment * 100).toFixed(2)}% | Tax Rate: ${(city.taxRate * 100).toFixed(2)}% | Police Funding: ${(city.policeStrength * 100).toFixed(2)}% | Top 10% Wealth Share: ${(city.topTenWealthShare * 100).toFixed(2)}% | Bottom 50% Wealth Share: ${(city.bottomFiftyWealthShare * 100).toFixed(2)}% | Total Wealth: ${city.totalWealth.toFixed(0)} | Fake News Event: ${city.fakeNewsEvent ? "Yes" : "No"} | Average Panic: ${avgPanic.toFixed(3)} | Max Panic: ${maxPanic.toFixed(3)}`,
   );
 
   tickCount++;
@@ -165,6 +166,7 @@ function runSimulationTrick() {
       crimeRate: city.crimeCount,
       avgHappiness: city.avyHappiness,
       unemployment: city.unemployment,
+      policeStrength: city.policeStrength,
       fakeNewsEvent: city.fakeNewsEvent,
       autoFakeNewsEnabled,
       panicLevels: Array.from(panic),
@@ -174,6 +176,7 @@ function runSimulationTrick() {
     if (tickCount % 5 === 0) {
       ioInstance.emit("slowUpdate", {
         taxRate: city.taxRate,
+        policeStrength: city.policeStrength,
         topTenWealthShare: city.topTenWealthShare,
         bottomFiftyWealthShare: city.bottomFiftyWealthShare,
         totalWealth: city.totalWealth,
@@ -209,4 +212,5 @@ export {
   triggerFakeNewsNow,
   toggleAutoFakeNews,
   getAutoFakeNewsEnabled,
+  triggerEconomicShock,
 };

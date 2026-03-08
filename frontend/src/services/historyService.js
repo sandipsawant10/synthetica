@@ -2,6 +2,21 @@ import axios from "axios";
 
 const API_URL = "http://localhost:3000/history";
 
+export const transformHistoryPayload = (historyData) => {
+  if (!historyData || !Array.isArray(historyData.days)) {
+    return [];
+  }
+
+  return historyData.days.map((day, index) => ({
+    day,
+    gdp: historyData.gdp[index],
+    crime: historyData.crime[index],
+    unemployment: historyData.unemployment[index],
+    happiness: historyData.happiness[index],
+    inequality: historyData.inequality[index],
+  }));
+};
+
 /**
  * Fetch and transform history data from backend
  * @returns {Promise<Array>} Array of objects with all metrics
@@ -9,17 +24,7 @@ const API_URL = "http://localhost:3000/history";
 export const fetchHistory = async () => {
   try {
     const response = await axios.get(API_URL);
-    const historyData = response.data.data;
-
-    // Transform the data from separate arrays to array of objects
-    return historyData.days.map((day, index) => ({
-      day,
-      gdp: historyData.gdp[index],
-      crime: historyData.crime[index],
-      unemployment: historyData.unemployment[index],
-      happiness: historyData.happiness[index],
-      inequality: historyData.inequality[index],
-    }));
+    return transformHistoryPayload(response.data.data);
   } catch (error) {
     throw new Error(`Failed to fetch history: ${error.message}`);
   }

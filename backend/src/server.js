@@ -9,6 +9,7 @@ import {
   triggerFakeNewsNow,
   toggleAutoFakeNews,
   getAutoFakeNewsEnabled,
+  triggerEconomicShock,
 } from "./simulation/simulationEngine.js";
 import { getHistory } from "./simulation/historyManger.js";
 
@@ -57,6 +58,23 @@ app.post("/policy/tax", (req, res) => {
   });
 });
 
+app.post("/policy/police-strength", (req, res) => {
+  const { policeStrength } = req.body;
+
+  if (policeStrength >= 0 && policeStrength <= 0.5) {
+    city.policeStrength = policeStrength;
+    return res.json({
+      success: true,
+      message: `Police strength updated to ${policeStrength}`,
+    });
+  }
+
+  return res.status(400).json({
+    success: false,
+    message: "Invalid police strength. Must be between 0 and 0.5.",
+  });
+});
+
 app.post("/policy/fake-news", (req, res) => {
   triggerFakeNewsNow();
   return res.json({
@@ -88,6 +106,11 @@ app.get("/history", (req, res) => {
     success: true,
     data: getHistory(),
   });
+});
+
+app.post("/event/economic-shock", (req, res) => {
+  triggerEconomicShock();
+  return res.json({ success: true });
 });
 
 const PORT = process.env.PORT || 3000;

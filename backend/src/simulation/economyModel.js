@@ -1,6 +1,7 @@
 import {
   agentCount,
   income,
+  happiness,
   employed,
   savings,
   wealth,
@@ -118,4 +119,18 @@ function processEmploymentChanges(i, stimulusActive, currentGdp) {
   }
 }
 
-export { processAgentEconomy };
+function triggerEconomicShock() {
+  const affectedAgents = Math.floor(agentCount * 0.15);
+
+  for (let i = 0; i < affectedAgents; i++) {
+    const index = Math.floor(Math.random() * agentCount);
+
+    employed[index] = 0;
+    happiness[index] *= 0.8;
+    panic[index] = Math.min(1, panic[index] + 0.3);
+  }
+
+  console.log("Economic shock triggered");
+}
+
+export { processAgentEconomy, triggerEconomicShock };
