@@ -1,23 +1,20 @@
-import { happiness, risk, panic } from "./agentState.js";
-import { getPolicy } from "./policyEngine.js";
-
 /**
  * Process crime for a single agent
  * @param {number} i - Agent index
- * @param {number} economicPressure - Unemployment pressure (0 to 1)
+ * @param {object} state - Simulation state
  * @returns {boolean} - Whether crime was committed
  */
-function processCrime(i, economicPressure) {
-  const policy = getPolicy();
-  const stress = 1 - happiness[i];
+function processCrime(i, state) {
+  const { agents, metrics, policy } = state;
+  const stress = 1 - agents.happiness[i];
 
-  let crimeProbability = stress * risk[i] * (1 - policy.policeStrength);
+  let crimeProbability = stress * agents.risk[i] * (1 - policy.policeStrength);
 
   // Tax burden and unemployment pressure increase baseline crime risk.
   crimeProbability *= 1 + policy.taxRate;
-  crimeProbability *= 1 + economicPressure;
+  crimeProbability *= 1 + metrics.unemployment;
 
-  crimeProbability += panic[i] * 0.1;
+  crimeProbability += agents.panic[i] * 0.1;
 
   crimeProbability = Math.max(0, Math.min(1, crimeProbability));
 

@@ -2,19 +2,7 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
-import {
-  startSimulation,
-  pauseSimulation,
-  resumeSimulation,
-  stepSimulation,
-  resetSimulation,
-  getSimulationStatus,
-  setIO,
-  triggerFakeNewsNow,
-  toggleAutoFakeNews,
-  getAutoFakeNewsEnabled,
-  triggerEconomicShock,
-} from "./simulation/simulationEngine.js";
+import workerManager from "./simulation/workerManager.js";
 import { getHistory } from "./simulation/historyManger.js";
 import { getPolicy, updatePolicy } from "./simulation/policyEngine.js";
 
@@ -72,7 +60,8 @@ io.on("connection", (socket) => {
   });
 });
 
-setIO(io);
+// Register Socket.IO instance with worker manager
+workerManager.setIO(io);
 
 app.use(
   cors({
@@ -93,7 +82,7 @@ app.post("/policy/update", (req, res) => {
     });
   }
 
-  updatePolicy(req.body);
+  workerManager.updatePolicy(req.body);
 
   return res.json({
     success: true,
@@ -141,7 +130,7 @@ app.post("/policy/police-strength", (req, res) => {
 });
 
 app.post("/policy/fake-news", (req, res) => {
-  triggerFakeNewsNow();
+  workerManager.triggerFakeNews();
   return res.json({
     success: true,
     message: "Fake news event will trigger on the next simulation tick.",
@@ -149,20 +138,18 @@ app.post("/policy/fake-news", (req, res) => {
 });
 
 app.post("/policy/fake-news/toggle", (req, res) => {
-  const enabled = toggleAutoFakeNews();
+  workerManager.toggleAutoFakeNews();
   return res.json({
     success: true,
-    autoFakeNewsEnabled: enabled,
-    message: enabled
-      ? "Auto fake-news triggering started."
-      : "Auto fake-news triggering stopped.",
+    message: "Auto fake-news toggling triggered.",
   });
 });
 
-app.get("/policy/fake-news/toggle", (req, res) => {
+app.get("/policy/fake-news/toggle", async (req, res) => {
+  const status = await workerManager.getStatus();
   return res.json({
     success: true,
-    autoFakeNewsEnabled: getAutoFakeNewsEnabled(),
+    autoFakeNewsEnabled: status.autoFakeNewsEnabled || false,
   });
 });
 
@@ -174,12 +161,12 @@ app.get("/history", (req, res) => {
 });
 
 app.post("/event/economic-shock", (req, res) => {
-  triggerEconomicShock();
+  workerManager.triggerEconomicShock();
   return res.json({ success: true });
 });
 
 app.post("/simulation/pause", (req, res) => {
-  pauseSimulation();
+  workerManager.pauseSimulation();
   return res.json({
     success: true,
     status: "paused",
@@ -187,7 +174,7 @@ app.post("/simulation/pause", (req, res) => {
 });
 
 app.post("/simulation/resume", (req, res) => {
-  resumeSimulation();
+  workerManager.resumeSimulation();
   return res.json({
     success: true,
     status: "running",
@@ -195,7 +182,7 @@ app.post("/simulation/resume", (req, res) => {
 });
 
 app.post("/simulation/step", (req, res) => {
-  stepSimulation();
+  workerManager.stepSimulation();
   return res.json({
     success: true,
     status: "step executed",
@@ -203,23 +190,34 @@ app.post("/simulation/step", (req, res) => {
 });
 
 app.post("/simulation/reset", (req, res) => {
-  resetSimulation();
+  workerManager.resetSimulation();
   return res.json({
     success: true,
     status: "reset",
   });
 });
 
-app.get("/simulation/status", (req, res) => {
+app.get("/simulation/status", async (req, res) => {
+  const status = await workerManager.getStatus();
   return res.json({
     success: true,
-    ...getSimulationStatus(),
+    ...status,
   });
 });
 
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Server is running on port ${PORT}`);
-  startSimulation();
+
+  // Initialize the simulation worker
+  const workerReady = await workerManager.initializeWorker();
+
+  if (workerReady) {
+    console.log("Worker initialized, starting simulation");
+    workerManager.startSimulation();
+  } else {
+    console.error("Failed to initialize worker");
+    process.exit(1);
+  }
 });

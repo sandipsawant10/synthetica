@@ -1,44 +1,41 @@
-const history = {
-  days: [],
-  gdp: [],
-  crime: [],
-  unemployment: [],
-  happiness: [],
-  inequality: [],
-};
+import { simulationState } from "./agentState.js";
 
 const maxHistory = 500;
 
-function recordSnapshot(city) {
-  history.days.push(city.day);
-  history.gdp.push(city.gdp);
-  history.crime.push(city.crimeCount);
-  history.unemployment.push(city.unemployment);
-  history.happiness.push(city.avyHappiness);
-  history.inequality.push(city.topTenWealthShare);
+function recordSnapshot(state) {
+  const h = state.history;
+  const m = state.metrics;
+
+  h.days.push(m.day);
+  h.gdp.push(m.gdp);
+  h.crime.push(m.crime);
+  h.unemployment.push(m.unemployment);
+  h.happiness.push(m.avyHappiness);
+  h.inequality.push(m.topTenWealthShare);
 
   // Trim old data if exceeds max
-  if (history.days.length > maxHistory) {
-    history.days.shift();
-    history.gdp.shift();
-    history.crime.shift();
-    history.unemployment.shift();
-    history.happiness.shift();
-    history.inequality.shift();
+  if (h.days.length > maxHistory) {
+    h.days.shift();
+    h.gdp.shift();
+    h.crime.shift();
+    h.unemployment.shift();
+    h.happiness.shift();
+    h.inequality.shift();
   }
 }
 
 function getHistory() {
-  return history;
+  return simulationState.history;
 }
 
 function clearHistory() {
-  history.days = [];
-  history.gdp = [];
-  history.crime = [];
-  history.unemployment = [];
-  history.happiness = [];
-  history.inequality = [];
+  const h = simulationState.history;
+  h.days = [];
+  h.gdp = [];
+  h.crime = [];
+  h.unemployment = [];
+  h.happiness = [];
+  h.inequality = [];
 }
 
-export { history as default, recordSnapshot, getHistory, clearHistory };
+export { recordSnapshot, getHistory, clearHistory };

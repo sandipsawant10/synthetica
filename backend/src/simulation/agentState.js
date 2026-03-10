@@ -1,26 +1,58 @@
 const agentCount = 1000;
 
-const income = new Float64Array(agentCount);
-const happiness = new Float32Array(agentCount);
-const employed = new Uint8Array(agentCount);
-const savings = new Float64Array(agentCount);
-const wealth = new Float64Array(agentCount);
-const capital = new Float64Array(agentCount);
-const risk = new Float32Array(agentCount);
-const spending = new Float32Array(agentCount);
-const influence = new Float32Array(agentCount);
-const trust = new Float32Array(agentCount);
-const panic = new Float32Array(agentCount);
+const simulationState = {
+  agents: {
+    income: new Float64Array(agentCount),
+    happiness: new Float32Array(agentCount),
+    employed: new Uint8Array(agentCount),
+    savings: new Float64Array(agentCount),
+    wealth: new Float64Array(agentCount),
+    capital: new Float64Array(agentCount),
+    risk: new Float32Array(agentCount),
+    spending: new Float32Array(agentCount),
+    influence: new Float32Array(agentCount),
+    trust: new Float32Array(agentCount),
+    panic: new Float32Array(agentCount),
+    connections: [],
+  },
 
-// Small-world network parameters
-const neighborsPerAgent = 6; // k
-const rewireProbability = 0.1; // p
+  metrics: {
+    day: 0,
+    gdp: 0,
+    crime: 0,
+    unemployment: 0,
+    avyHappiness: 0,
+    totalWealth: 0,
+    topTenWealthShare: 0,
+    bottomFiftyWealthShare: 0,
+    stimulusActive: false,
+    fakeNewsEvent: false,
+  },
+
+  history: {
+    days: [],
+    gdp: [],
+    crime: [],
+    unemployment: [],
+    happiness: [],
+    inequality: [],
+  },
+
+  policy: {
+    taxRate: 0.1,
+    policeStrength: 0.2,
+    welfareRate: 0.25,
+    stimulusMultiplier: 1,
+  },
+};
+
+// Build small-world ring network with randomised rewiring (Watts-Strogatz)
+const { connections } = simulationState.agents;
+const rewireProbability = 0.1;
 
 // Step 1: Build ring network with local connections
-const connections = [];
 for (let i = 0; i < agentCount; i++) {
   const neighbors = [];
-  // Connect to 3 nearest neighbors on each side
   for (let j = 1; j <= 3; j++) {
     neighbors.push((i + j) % agentCount);
     neighbors.push((i - j + agentCount) % agentCount);
@@ -37,18 +69,4 @@ for (let i = 0; i < agentCount; i++) {
   }
 }
 
-export {
-  agentCount,
-  income,
-  happiness,
-  employed,
-  savings,
-  wealth,
-  capital,
-  risk,
-  spending,
-  influence,
-  trust,
-  panic,
-  connections,
-};
+export { agentCount, simulationState };

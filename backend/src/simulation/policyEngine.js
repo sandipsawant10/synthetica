@@ -1,16 +1,11 @@
-const policy = {
-  taxRate: 0.1,
-  policeStrength: 0.2,
-  welfareRate: 0.25,
-  stimulusMultiplier: 1,
-};
+import { simulationState } from "./agentState.js";
 
 function updatePolicy(newPolicy) {
-  Object.assign(policy, newPolicy);
+  Object.assign(simulationState.policy, newPolicy);
 }
 
 function getPolicy() {
-  return policy;
+  return simulationState.policy;
 }
 
 export { getPolicy, updatePolicy };
