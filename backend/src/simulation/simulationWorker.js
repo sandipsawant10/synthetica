@@ -20,8 +20,9 @@ import {
   triggerFakeNewsEvent,
 } from "./misinformationModel.js";
 import { shouldActivateStimulus } from "./policyController.js";
-import { recordSnapshot, getHistory } from "./historyManger.js";
+import { clearHistory, recordSnapshot, getHistory } from "./historyManger.js";
 import { updatePolicy } from "./policyEngine.js";
+import { DEFAULT_MAX_DAYS, parseMaxDays } from "../config/simulationConfig.js";
 import { COMMAND_TYPES, EVENT_TYPES, createEvent } from "./messageProtocol.js";
 
 // Simulation state management
@@ -30,7 +31,69 @@ let forceFakeNewsNextTick = false;
 let autoFakeNewsEnabled = false;
 let tickCount = 0;
 let intervalHandle = null;
+let maxDays = DEFAULT_MAX_DAYS;
+let runTotals = {
+  gdpSum: 0,
+  crimeSum: 0,
+  unemploymentSum: 0,
+  maxPanicLevel: 0,
+};
+let simulationSummary = null;
 const TICK_INTERVAL = 1000; // 1 second
+
+function resetRunSummary() {
+  runTotals = {
+    gdpSum: 0,
+    crimeSum: 0,
+    unemploymentSum: 0,
+    maxPanicLevel: 0,
+  };
+  simulationSummary = null;
+}
+
+function buildSimulationSummary() {
+  const { metrics } = simulationState;
+
+  if (metrics.day === 0) {
+    return null;
+  }
+
+  return {
+    daysSimulated: metrics.day,
+    averageGdp: runTotals.gdpSum / metrics.day,
+    averageCrime: runTotals.crimeSum / metrics.day,
+    averageUnemployment: runTotals.unemploymentSum / metrics.day,
+    finalInequality: metrics.topTenWealthShare,
+    maxPanicLevel: runTotals.maxPanicLevel,
+  };
+}
+
+function finalizeSimulation() {
+  simulationRunning = false;
+  simulationSummary = buildSimulationSummary();
+
+  console.log(
+    `[WORKER] Simulation finished at day ${simulationState.metrics.day}`,
+  );
+
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.STATE_UPDATE, {
+      day: simulationState.metrics.day,
+      running: false,
+      maxDays,
+      limitReached: true,
+      summary: simulationSummary,
+    }),
+  );
+
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.SIMULATION_COMPLETED, {
+      summary: simulationSummary,
+      day: simulationState.metrics.day,
+      maxDays,
+    }),
+  );
+}
 
 /**
  * Core simulation tick - processes all agents and systems for one time unit
@@ -40,6 +103,11 @@ function runSimulationTick() {
 
   const state = simulationState;
   const { agents, metrics, policy } = state;
+
+  if (metrics.day >= maxDays) {
+    finalizeSimulation();
+    return;
+  }
 
   metrics.day++;
   metrics.gdp = 0;
@@ -136,6 +204,11 @@ function runSimulationTick() {
     agents.panic.reduce((sum, value) => sum + value, 0) / agentCount;
   const maxPanic = Math.max(...agents.panic);
 
+  runTotals.gdpSum += metrics.gdp;
+  runTotals.crimeSum += metrics.crime;
+  runTotals.unemploymentSum += metrics.unemployment;
+  runTotals.maxPanicLevel = Math.max(runTotals.maxPanicLevel, maxPanic);
+
   // Log to worker console
   console.log(
     `[WORKER] Day: ${metrics.day} | GDP: ${metrics.gdp.toFixed(0)} | Crime: ${metrics.crime} | Happiness: ${metrics.avyHappiness.toFixed(2)} | Unemployment: ${(metrics.unemployment * 100).toFixed(2)}% | Panic: ${avgPanic.toFixed(3)}`,
@@ -153,6 +226,10 @@ function runSimulationTick() {
       gdp: metrics.gdp,
       crimeRate: metrics.crime,
       avgHappiness: metrics.avyHappiness,
+      running: simulationRunning,
+      maxDays,
+      limitReached: false,
+      summary: simulationSummary,
       unemployment: metrics.unemployment,
       policeStrength: policy.policeStrength,
       fakeNewsEvent: metrics.fakeNewsEvent,
@@ -193,6 +270,8 @@ function initializeCity() {
  */
 function startSimulation() {
   console.log("[WORKER] Starting simulation");
+  resetRunSummary();
+  clearHistory();
   initializeCity();
   simulationRunning = true;
   if (!intervalHandle) {
@@ -254,6 +333,8 @@ function resetSimulation() {
   autoFakeNewsEnabled = false;
   tickCount = 0;
   simulationRunning = true;
+  resetRunSummary();
+  clearHistory();
 
   // Reinitialize agents
   initializeCity();
@@ -272,7 +353,35 @@ function getStatus() {
     day: simulationState.metrics.day,
     tickCount,
     autoFakeNewsEnabled,
+    maxDays,
+    limitReached: simulationState.metrics.day >= maxDays,
+    summary: simulationSummary,
   };
+}
+
+function setSimulationConfig(config = {}) {
+  const nextMaxDays = parseMaxDays(config.maxDays);
+
+  if (nextMaxDays === null) {
+    throw new Error("maxDays must be a positive integer.");
+  }
+
+  maxDays = nextMaxDays;
+
+  if (simulationState.metrics.day >= maxDays) {
+    finalizeSimulation();
+    return;
+  }
+
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.STATE_UPDATE, {
+      day: simulationState.metrics.day,
+      running: simulationRunning,
+      maxDays,
+      limitReached: false,
+      summary: simulationSummary,
+    }),
+  );
 }
 
 /**
@@ -303,6 +412,11 @@ parentPort.on("message", (command) => {
 
       case COMMAND_TYPES.RESET_SIMULATION:
         resetSimulation();
+        break;
+
+      case COMMAND_TYPES.SET_SIMULATION_CONFIG:
+        setSimulationConfig(command.payload);
+        console.log(`[WORKER] Simulation config updated: maxDays=${maxDays}`);
         break;
 
       case COMMAND_TYPES.UPDATE_POLICY:

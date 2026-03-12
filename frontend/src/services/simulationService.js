@@ -38,6 +38,10 @@ export const resetSimulation = async () => {
   return axios.post(`${API_BASE_URL}/simulation/reset`);
 };
 
+export const updateSimulationConfig = async (maxDays) => {
+  return axios.post(`${API_BASE_URL}/simulation/config`, { maxDays });
+};
+
 export const getSimulationStatus = async () => {
   return axios.get(`${API_BASE_URL}/simulation/status`);
 };

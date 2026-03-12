@@ -7,6 +7,7 @@ import {
   resumeSimulation,
   stepSimulation,
   resetSimulation,
+  updateSimulationConfig,
 } from "../../services/simulationService";
 import useSimulationStream from "../../hooks/useSimulationStream";
 import PanicHeatmap from "../PanicHeatmap";
@@ -100,6 +101,20 @@ function Dashboard() {
     }
   };
 
+  const handleSetMaxDays = async (maxDays) => {
+    try {
+      await updateSimulationConfig(maxDays);
+      mergeWorldState({
+        maxDays,
+        limitReached: worldState.day >= maxDays,
+        summary: null,
+        running: worldState.day >= maxDays ? false : worldState.running,
+      });
+    } catch (error) {
+      console.error("Error updating simulation max days:", error);
+    }
+  };
+
   const panicLevels = worldState.panicLevels || [];
   const avgPanic =
     panicLevels.length > 0
@@ -132,6 +147,7 @@ function Dashboard() {
         onResume={handleResume}
         onStep={handleStep}
         onReset={handleReset}
+        onSetMaxDays={handleSetMaxDays}
       />
     </div>
   );

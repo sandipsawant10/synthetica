@@ -11,11 +11,18 @@ function DashboardControls({
   onResume,
   onStep,
   onReset,
+  onSetMaxDays,
 }) {
+  const dayPresets = [100, 500, 1000];
+
   return (
     <>
       <div style={{ marginBottom: "20px" }}>
         <h3>Simulation Controls</h3>
+        <p>
+          Day {worldState.day} of {worldState.maxDays}
+          {worldState.limitReached ? " (finished)" : ""}
+        </p>
         <Button variant="contained" color="primary" onClick={onPause}>
           Pause
         </Button>{" "}
@@ -28,6 +35,21 @@ function DashboardControls({
         <Button variant="contained" color="error" onClick={onReset}>
           Reset
         </Button>
+      </div>
+
+      <div style={{ marginBottom: "20px" }}>
+        <h3>Simulation Limit</h3>
+        {dayPresets.map((days) => (
+          <Button
+            key={days}
+            variant={worldState.maxDays === days ? "contained" : "outlined"}
+            color="success"
+            onClick={() => onSetMaxDays(days)}
+            style={{ marginRight: "8px" }}
+          >
+            Run {days} days
+          </Button>
+        ))}
       </div>
 
       <div style={{ marginBottom: "20px" }}>

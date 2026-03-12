@@ -5,6 +5,7 @@ import { Server } from "socket.io";
 import workerManager from "./simulation/workerManager.js";
 import { getHistory } from "./simulation/historyManger.js";
 import { getPolicy, updatePolicy } from "./simulation/policyEngine.js";
+import { parseMaxDays } from "./config/simulationConfig.js";
 
 const POLICY_LIMITS = {
   taxRate: { min: 0, max: 0.5 },
@@ -194,6 +195,24 @@ app.post("/simulation/reset", (req, res) => {
   return res.json({
     success: true,
     status: "reset",
+  });
+});
+
+app.post("/simulation/config", (req, res) => {
+  const maxDays = parseMaxDays(req.body?.maxDays);
+
+  if (maxDays === null) {
+    return res.status(400).json({
+      success: false,
+      message: "maxDays must be a positive integer.",
+    });
+  }
+
+  workerManager.updateSimulationConfig({ maxDays });
+
+  return res.json({
+    success: true,
+    maxDays,
   });
 });
 

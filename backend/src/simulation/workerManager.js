@@ -94,6 +94,7 @@ function handleWorkerMessage(message) {
       case EVENT_TYPES.SIMULATION_PAUSED:
       case EVENT_TYPES.SIMULATION_RESUMED:
       case EVENT_TYPES.SIMULATION_RESET:
+      case EVENT_TYPES.SIMULATION_COMPLETED:
         io.emit("simulationStatusChanged", {
           type: message.type,
           payload: message.payload,
@@ -154,6 +155,10 @@ export function stepSimulation() {
 
 export function resetSimulation() {
   return sendCommand(COMMAND_TYPES.RESET_SIMULATION);
+}
+
+export function updateSimulationConfig(config) {
+  return sendCommand(COMMAND_TYPES.SET_SIMULATION_CONFIG, config);
 }
 
 /**
@@ -221,6 +226,7 @@ export default {
   resumeSimulation,
   stepSimulation,
   resetSimulation,
+  updateSimulationConfig,
   updatePolicy,
   triggerFakeNews,
   toggleAutoFakeNews,
