@@ -46,9 +46,9 @@ const simulationState = {
   },
 };
 
-// Build small-world ring network with randomised rewiring (Watts-Strogatz)
+// Build a deterministic baseline ring network.
+// generateAgents() replaces this each simulation start.
 const { connections } = simulationState.agents;
-const rewireProbability = 0.1;
 
 // Step 1: Build ring network with local connections
 for (let i = 0; i < agentCount; i++) {
@@ -58,15 +58,6 @@ for (let i = 0; i < agentCount; i++) {
     neighbors.push((i - j + agentCount) % agentCount);
   }
   connections.push(neighbors);
-}
-
-// Step 2: Rewire edges to create long-distance connections
-for (let i = 0; i < agentCount; i++) {
-  for (let j = 0; j < connections[i].length; j++) {
-    if (Math.random() < rewireProbability) {
-      connections[i][j] = Math.floor(Math.random() * agentCount);
-    }
-  }
 }
 
 export { agentCount, simulationState };

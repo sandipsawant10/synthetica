@@ -1,3 +1,5 @@
+import { random } from "./rng.js";
+
 /**
  * Process crime for a single agent
  * @param {number} i - Agent index
@@ -18,7 +20,7 @@ function processCrime(i, state) {
 
   crimeProbability = Math.max(0, Math.min(1, crimeProbability));
 
-  return Math.random() < crimeProbability;
+  return random() < crimeProbability;
 }
 
 export { processCrime };

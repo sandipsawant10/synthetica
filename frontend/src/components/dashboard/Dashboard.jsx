@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   updatePolicy,
   toggleFakeNews,
@@ -8,6 +8,11 @@ import {
   stepSimulation,
   resetSimulation,
   updateSimulationConfig,
+  fetchSimulationRuns,
+  fetchSimulationRunById,
+  fetchScenarioTemplates,
+  startSimulation,
+  deleteSimulationRun,
 } from "../../services/simulationService";
 import useSimulationStream from "../../hooks/useSimulationStream";
 import PanicHeatmap from "../PanicHeatmap";
@@ -15,10 +20,160 @@ import CrimeChart from "../CrimeChart";
 import GDPChart from "../GDPChart";
 import DashboardStats from "./DashboardStats";
 import DashboardControls from "./DashboardControls";
+import SimulationRunsPanel from "./SimulationRunsPanel";
+import CompareRunsPanel from "./CompareRunsPanel";
+import { transformHistoryPayload } from "../../services/historyService";
 
 function Dashboard() {
   const [isTogglingFakeNews, setIsTogglingFakeNews] = useState(false);
-  const { worldState, history, mergeWorldState } = useSimulationStream();
+  const [runs, setRuns] = useState([]);
+  const [isLoadingRuns, setIsLoadingRuns] = useState(false);
+  const [selectedRun, setSelectedRun] = useState(null);
+  const [scenarios, setScenarios] = useState([
+    {
+      key: "baseline",
+      name: "Baseline Economy",
+      label: "Baseline Economy",
+      description: "Standard economic conditions with balanced policy levers.",
+    },
+    {
+      key: "highTax",
+      name: "High Tax Economy",
+      label: "High Tax Economy",
+      description:
+        "Higher taxation to fund redistribution and public services.",
+    },
+    {
+      key: "highWelfare",
+      name: "High Welfare Economy",
+      label: "High Welfare Economy",
+      description: "Expanded welfare support to reduce social vulnerability.",
+    },
+    {
+      key: "highPolice",
+      name: "High Police Economy",
+      label: "High Police Economy",
+      description: "Increased policing emphasis for crime suppression.",
+    },
+    {
+      key: "economicCrisis",
+      name: "Economic Crisis",
+      label: "Economic Crisis",
+      description: "Stress scenario with elevated welfare and active stimulus.",
+    },
+  ]);
+  const [selectedScenario, setSelectedScenario] = useState("baseline");
+  const [selectedSeed, setSelectedSeed] = useState("42");
+  const [isStartingSimulation, setIsStartingSimulation] = useState(false);
+  const { worldState, history, lastSavedRunId, mergeWorldState } =
+    useSimulationStream();
+
+  const displayedHistory = useMemo(() => {
+    if (!selectedRun?.history) {
+      return history;
+    }
+
+    return transformHistoryPayload(selectedRun.history);
+  }, [history, selectedRun]);
+
+  const loadRuns = async () => {
+    setIsLoadingRuns(true);
+
+    try {
+      const response = await fetchSimulationRuns(50);
+      setRuns(response.data?.data ?? []);
+    } catch (error) {
+      console.error("Error loading simulation runs:", error);
+    } finally {
+      setIsLoadingRuns(false);
+    }
+  };
+
+  const loadScenarios = async () => {
+    try {
+      const response = await fetchScenarioTemplates();
+      const scenarioMap = response.data?.data ?? {};
+      const scenarioList = Object.entries(scenarioMap).map(([key, value]) => ({
+        key,
+        name: value?.name || value?.label || key,
+        label: value?.label || value?.name || key,
+        description: value?.description || "",
+      }));
+
+      if (scenarioList.length > 0) {
+        setScenarios(scenarioList);
+
+        if (
+          !scenarioList.some((scenario) => scenario.key === selectedScenario)
+        ) {
+          setSelectedScenario(scenarioList[0].key);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading scenarios:", error);
+    }
+  };
+
+  const handleStartScenario = async () => {
+    setIsStartingSimulation(true);
+
+    try {
+      const parsedSeed = Number.parseInt(selectedSeed, 10);
+      const response = await startSimulation(
+        selectedScenario,
+        Number.isFinite(parsedSeed) ? parsedSeed : 42,
+      );
+      mergeWorldState({
+        status: response.data?.status || "running",
+        running: true,
+        day: 0,
+        limitReached: false,
+        summary: null,
+        seed: response.data?.seed,
+      });
+      setSelectedRun(null);
+    } catch (error) {
+      console.error("Error starting simulation:", error);
+    } finally {
+      setIsStartingSimulation(false);
+    }
+  };
+
+  const handleViewRun = async (runId) => {
+    try {
+      const response = await fetchSimulationRunById(runId);
+      setSelectedRun(response.data?.data ?? null);
+    } catch (error) {
+      console.error("Error loading simulation run:", error);
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedRun(null);
+  };
+
+  const handleDeleteRun = async (runId) => {
+    if (!window.confirm(`Delete run ${runId}? This cannot be undone.`)) return;
+
+    try {
+      await deleteSimulationRun(runId);
+      if (selectedRun?.runId === runId) setSelectedRun(null);
+      setRuns((prev) => prev.filter((r) => r.runId !== runId));
+    } catch (error) {
+      console.error("Error deleting simulation run:", error);
+    }
+  };
+
+  useEffect(() => {
+    void loadRuns();
+    void loadScenarios();
+  }, []);
+
+  useEffect(() => {
+    if (lastSavedRunId) {
+      void loadRuns();
+    }
+  }, [lastSavedRunId]);
 
   const handleTaxChange = async (e) => {
     const newTax = parseFloat(e.target.value);
@@ -123,21 +278,61 @@ function Dashboard() {
 
   const maxPanic = panicLevels.length > 0 ? Math.max(...panicLevels) : 0;
 
+  const statusMeta = {
+    running: { icon: "🟢", label: "Running" },
+    idle: { icon: "🟡", label: "Idle" },
+    completed: { icon: "🔵", label: "Completed" },
+  };
+
+  const activeStatus = statusMeta[worldState.status] || statusMeta.idle;
+
   return (
     <div>
+      <section style={{ textAlign: "left", marginBottom: "0.75rem" }}>
+        <h2>Simulation Status</h2>
+        <p>
+          {activeStatus.icon} {activeStatus.label}
+        </p>
+      </section>
+
       <DashboardStats
         worldState={worldState}
         avgPanic={avgPanic}
         maxPanic={maxPanic}
       />
+      {selectedRun ? (
+        <p>
+          Viewing saved run <strong>{selectedRun.runId}</strong>. Charts below
+          are loaded from persisted history.
+        </p>
+      ) : null}
       <PanicHeatmap panicLevels={worldState.panicLevels} />
-      <CrimeChart history={history} />
+      <CrimeChart history={displayedHistory} />
       <br />
       <br />
-      <GDPChart history={history} />
+      <GDPChart history={displayedHistory} />
+
+      <SimulationRunsPanel
+        runs={runs}
+        selectedRunId={selectedRun?.runId ?? null}
+        isLoading={isLoadingRuns}
+        onRefresh={loadRuns}
+        onView={handleViewRun}
+        onDelete={handleDeleteRun}
+        onClearSelection={handleClearSelection}
+      />
+
+      <CompareRunsPanel runs={runs} />
 
       <DashboardControls
         worldState={worldState}
+        scenarios={scenarios}
+        selectedScenario={selectedScenario}
+        selectedSeed={selectedSeed}
+        isStartingSimulation={isStartingSimulation}
+        onScenarioChange={setSelectedScenario}
+        onSeedChange={setSelectedSeed}
+        onStartSimulation={handleStartScenario}
         isTogglingFakeNews={isTogglingFakeNews}
         onToggleFakeNews={handleToggleFakeNews}
         onTriggerEconomicShock={handleTriggerEconomicShock}

@@ -12,6 +12,7 @@ import {
   EVENT_TYPES,
   createCommand,
 } from "./messageProtocol.js";
+import { saveSimulationRun } from "../services/simulationRunService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +20,51 @@ const __dirname = path.dirname(__filename);
 let worker = null;
 let io = null;
 let messageHandlers = {};
+let simulationLifecycleStatus = "idle";
+const statusChangeListeners = new Set();
+
+function setSimulationLifecycleStatus(nextStatus) {
+  if (simulationLifecycleStatus === nextStatus) {
+    return;
+  }
+
+  simulationLifecycleStatus = nextStatus;
+
+  for (const listener of statusChangeListeners) {
+    try {
+      listener(simulationLifecycleStatus);
+    } catch (error) {
+      console.error("[MANAGER] Status listener error:", error.message);
+    }
+  }
+}
+
+export function getSimulationLifecycleStatus() {
+  return simulationLifecycleStatus;
+}
+
+export function onSimulationStatusChange(listener) {
+  statusChangeListeners.add(listener);
+  return () => statusChangeListeners.delete(listener);
+}
+
+async function persistCompletedRun(run) {
+  if (!run?.runId) {
+    console.warn(
+      "[MANAGER] Missing runId. Skipping simulation run persistence.",
+    );
+    return null;
+  }
+
+  try {
+    const savedRun = await saveSimulationRun(run);
+    console.log(`[MANAGER] Saved simulation run: ${savedRun.runId}`);
+    return savedRun;
+  } catch (error) {
+    console.error("[MANAGER] Failed to save simulation run:", error.message);
+    return null;
+  }
+}
 
 /**
  * Initialize the simulation worker
@@ -90,14 +136,56 @@ function handleWorkerMessage(message) {
         io.emit("historyUpdate", message.payload.history);
         break;
 
+      case EVENT_TYPES.PROGRESS:
+        io.emit("simulationProgress", message.payload);
+        break;
+
       case EVENT_TYPES.SIMULATION_STARTED:
-      case EVENT_TYPES.SIMULATION_PAUSED:
-      case EVENT_TYPES.SIMULATION_RESUMED:
-      case EVENT_TYPES.SIMULATION_RESET:
-      case EVENT_TYPES.SIMULATION_COMPLETED:
+        setSimulationLifecycleStatus("running");
         io.emit("simulationStatusChanged", {
           type: message.type,
           payload: message.payload,
+        });
+        break;
+
+      case EVENT_TYPES.SIMULATION_PAUSED:
+        setSimulationLifecycleStatus("idle");
+        io.emit("simulationStatusChanged", {
+          type: message.type,
+          payload: message.payload,
+        });
+        break;
+
+      case EVENT_TYPES.SIMULATION_RESUMED:
+        setSimulationLifecycleStatus("running");
+        io.emit("simulationStatusChanged", {
+          type: message.type,
+          payload: message.payload,
+        });
+        break;
+
+      case EVENT_TYPES.SIMULATION_RESET:
+        setSimulationLifecycleStatus("running");
+        io.emit("simulationStatusChanged", {
+          type: message.type,
+          payload: message.payload,
+        });
+        break;
+
+      case EVENT_TYPES.SIMULATION_COMPLETED:
+        setSimulationLifecycleStatus("completed");
+        io.emit("simulationStatusChanged", {
+          type: message.type,
+          payload: message.payload,
+        });
+
+        void persistCompletedRun(message.payload?.run).then((savedRun) => {
+          if (savedRun && io) {
+            io.emit("simulationRunSaved", {
+              runId: savedRun.runId,
+              createdAt: savedRun.createdAt,
+            });
+          }
         });
         break;
 
@@ -137,16 +225,28 @@ function sendCommand(type, payload = {}) {
 /**
  * Simulation lifecycle commands
  */
-export function startSimulation() {
-  return sendCommand(COMMAND_TYPES.START_SIMULATION);
+export function startSimulation(options = {}) {
+  const sent = sendCommand(COMMAND_TYPES.START_SIMULATION, options);
+  if (sent) {
+    setSimulationLifecycleStatus("running");
+  }
+  return sent;
 }
 
 export function pauseSimulation() {
-  return sendCommand(COMMAND_TYPES.PAUSE_SIMULATION);
+  const sent = sendCommand(COMMAND_TYPES.PAUSE_SIMULATION);
+  if (sent) {
+    setSimulationLifecycleStatus("idle");
+  }
+  return sent;
 }
 
 export function resumeSimulation() {
-  return sendCommand(COMMAND_TYPES.RESUME_SIMULATION);
+  const sent = sendCommand(COMMAND_TYPES.RESUME_SIMULATION);
+  if (sent) {
+    setSimulationLifecycleStatus("running");
+  }
+  return sent;
 }
 
 export function stepSimulation() {
@@ -154,7 +254,11 @@ export function stepSimulation() {
 }
 
 export function resetSimulation() {
-  return sendCommand(COMMAND_TYPES.RESET_SIMULATION);
+  const sent = sendCommand(COMMAND_TYPES.RESET_SIMULATION);
+  if (sent) {
+    setSimulationLifecycleStatus("running");
+  }
+  return sent;
 }
 
 export function updateSimulationConfig(config) {
@@ -221,6 +325,8 @@ export function terminateWorker() {
 export default {
   initializeWorker,
   setIO,
+  getSimulationLifecycleStatus,
+  onSimulationStatusChange,
   startSimulation,
   pauseSimulation,
   resumeSimulation,

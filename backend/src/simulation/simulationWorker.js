@@ -24,6 +24,8 @@ import { clearHistory, recordSnapshot, getHistory } from "./historyManger.js";
 import { updatePolicy } from "./policyEngine.js";
 import { DEFAULT_MAX_DAYS, parseMaxDays } from "../config/simulationConfig.js";
 import { COMMAND_TYPES, EVENT_TYPES, createEvent } from "./messageProtocol.js";
+import { getSeed, setSeed } from "./rng.js";
+import calculateSummary from "../analytics/summaryCalculator.js";
 
 // Simulation state management
 let simulationRunning = false;
@@ -33,44 +35,55 @@ let tickCount = 0;
 let intervalHandle = null;
 let maxDays = DEFAULT_MAX_DAYS;
 let runTotals = {
-  gdpSum: 0,
-  crimeSum: 0,
-  unemploymentSum: 0,
   maxPanicLevel: 0,
 };
 let simulationSummary = null;
+let runMetadata = null;
 const TICK_INTERVAL = 1000; // 1 second
+
+function getProgressPayload() {
+  const day = simulationState.metrics.day;
+  const safeMaxDays = maxDays > 0 ? maxDays : 1;
+
+  return {
+    day,
+    maxDays,
+    progress: Math.min(day / safeMaxDays, 1),
+  };
+}
 
 function resetRunSummary() {
   runTotals = {
-    gdpSum: 0,
-    crimeSum: 0,
-    unemploymentSum: 0,
     maxPanicLevel: 0,
   };
   simulationSummary = null;
 }
 
-function buildSimulationSummary() {
-  const { metrics } = simulationState;
-
-  if (metrics.day === 0) {
-    return null;
-  }
-
-  return {
-    daysSimulated: metrics.day,
-    averageGdp: runTotals.gdpSum / metrics.day,
-    averageCrime: runTotals.crimeSum / metrics.day,
-    averageUnemployment: runTotals.unemploymentSum / metrics.day,
-    finalInequality: metrics.topTenWealthShare,
-    maxPanicLevel: runTotals.maxPanicLevel,
-  };
-}
-
 function finalizeSimulation() {
   simulationRunning = false;
-  simulationSummary = buildSimulationSummary();
+  const historySnapshot = getHistory();
+  const persistedSummary = calculateSummary(historySnapshot, {
+    maxPanicLevel: runTotals.maxPanicLevel,
+  });
+
+  // Preserve existing websocket payload shape expected by current dashboard.
+  simulationSummary = {
+    daysSimulated: persistedSummary.daysSimulated,
+    averageGdp: persistedSummary.avgGDP,
+    averageCrime: persistedSummary.avgCrime,
+    averageUnemployment: persistedSummary.avgUnemployment,
+    averageHappiness: persistedSummary.avgHappiness,
+    finalInequality: persistedSummary.finalInequality,
+    maxPanicLevel: persistedSummary.maxPanicLevel,
+  };
+
+  const completedRunPayload = {
+    runId: runMetadata?.runId,
+    startTime: runMetadata?.startTime,
+    parameters: runMetadata?.parameters,
+    summary: persistedSummary,
+    history: historySnapshot,
+  };
 
   console.log(
     `[WORKER] Simulation finished at day ${simulationState.metrics.day}`,
@@ -91,7 +104,12 @@ function finalizeSimulation() {
       summary: simulationSummary,
       day: simulationState.metrics.day,
       maxDays,
+      run: completedRunPayload,
     }),
+  );
+
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.PROGRESS, getProgressPayload()),
   );
 }
 
@@ -204,9 +222,6 @@ function runSimulationTick() {
     agents.panic.reduce((sum, value) => sum + value, 0) / agentCount;
   const maxPanic = Math.max(...agents.panic);
 
-  runTotals.gdpSum += metrics.gdp;
-  runTotals.crimeSum += metrics.crime;
-  runTotals.unemploymentSum += metrics.unemployment;
   runTotals.maxPanicLevel = Math.max(runTotals.maxPanicLevel, maxPanic);
 
   // Log to worker console
@@ -236,6 +251,10 @@ function runSimulationTick() {
       autoFakeNewsEnabled,
       panicLevels: Array.from(agents.panic),
     }),
+  );
+
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.PROGRESS, getProgressPayload()),
   );
 
   // Emit slow update (heavy analytics every 5 ticks)
@@ -268,16 +287,39 @@ function initializeCity() {
 /**
  * Start the simulation
  */
-function startSimulation() {
+function startSimulation(options = {}) {
   console.log("[WORKER] Starting simulation");
+  const activeSeed = setSeed(options.seed);
   resetRunSummary();
   clearHistory();
   initializeCity();
+
+  runMetadata = {
+    runId: `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    startTime: new Date().toISOString(),
+    parameters: {
+      taxRate: simulationState.policy.taxRate,
+      policeStrength: simulationState.policy.policeStrength,
+      welfareRate: simulationState.policy.welfareRate,
+      maxDays,
+      seed: activeSeed,
+    },
+  };
+
   simulationRunning = true;
   if (!intervalHandle) {
     intervalHandle = setInterval(runSimulationTick, TICK_INTERVAL);
   }
-  parentPort.postMessage(createEvent(EVENT_TYPES.SIMULATION_STARTED));
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.SIMULATION_STARTED, {
+      seed: activeSeed,
+      runId: runMetadata.runId,
+    }),
+  );
+
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.PROGRESS, getProgressPayload()),
+  );
 }
 
 /**
@@ -342,6 +384,9 @@ function resetSimulation() {
   // Restart interval
   intervalHandle = setInterval(runSimulationTick, TICK_INTERVAL);
   parentPort.postMessage(createEvent(EVENT_TYPES.SIMULATION_RESET));
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.PROGRESS, getProgressPayload()),
+  );
 }
 
 /**
@@ -356,6 +401,8 @@ function getStatus() {
     maxDays,
     limitReached: simulationState.metrics.day >= maxDays,
     summary: simulationSummary,
+    seed: runMetadata?.parameters?.seed ?? getSeed(),
+    progress: getProgressPayload().progress,
   };
 }
 
@@ -382,6 +429,10 @@ function setSimulationConfig(config = {}) {
       summary: simulationSummary,
     }),
   );
+
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.PROGRESS, getProgressPayload()),
+  );
 }
 
 /**
@@ -395,7 +446,7 @@ parentPort.on("message", (command) => {
   try {
     switch (command.type) {
       case COMMAND_TYPES.START_SIMULATION:
-        startSimulation();
+        startSimulation(command.payload);
         break;
 
       case COMMAND_TYPES.PAUSE_SIMULATION:

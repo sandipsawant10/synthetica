@@ -1,4 +1,5 @@
 import { agentCount } from "./agentState.js";
+import { random, randomInt } from "./rng.js";
 
 const panicNext = new Float32Array(agentCount);
 
@@ -33,7 +34,7 @@ function processPanicSpread(state) {
 
 function processFakeNewsEvent(state) {
   // Small daily chance to spike one random agent to max panic.
-  if (Math.random() < 0.002) {
+  if (random() < 0.002) {
     triggerFakeNewsEvent(state);
     return true;
   }
@@ -42,7 +43,7 @@ function processFakeNewsEvent(state) {
 }
 
 function triggerFakeNewsEvent(state) {
-  const seed = Math.floor(Math.random() * agentCount);
+  const seed = randomInt(agentCount);
   state.agents.panic[seed] = 1;
   return seed;
 }

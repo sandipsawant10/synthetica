@@ -3,6 +3,7 @@ import {
   calculateUnemploymentBenefit,
   getHiringMultiplier,
 } from "./policyController.js";
+import { random, randomInt } from "./rng.js";
 
 /**
  * Process economic cycle for a single agent
@@ -51,7 +52,7 @@ function processAgentEconomy(i, state) {
   agents.wealth[i] += agents.wealth[i] * investmentReturnRate;
 
   // Random financial shock for low income agents
-  if (agents.income[i] < 40000 && Math.random() < 0.02) {
+  if (agents.income[i] < 40000 && random() < 0.02) {
     const shock = agents.wealth[i] * 0.05; // 5% loss
     agents.wealth[i] -= shock;
   }
@@ -61,7 +62,7 @@ function processAgentEconomy(i, state) {
   const capitalReturn = agents.capital[i] * capitalReturnRate;
   agents.wealth[i] += capitalReturn;
 
-  if (agents.wealth[i] < 20000 && Math.random() < 0.005) {
+  if (agents.wealth[i] < 20000 && random() < 0.005) {
     agents.wealth[i] *= 0.92;
   }
 
@@ -89,14 +90,14 @@ function processEmploymentChanges(i, state) {
   const { agents, metrics, policy } = state;
 
   // job loss
-  if (agents.employed[i] && Math.random() < 0.003) {
+  if (agents.employed[i] && random() < 0.003) {
     agents.employed[i] = 0;
     return;
   }
 
   const hiringMultiplier = getHiringMultiplier(metrics.stimulusActive, policy);
 
-  if (!agents.employed[i] && Math.random() < 0.005 * hiringMultiplier) {
+  if (!agents.employed[i] && random() < 0.005 * hiringMultiplier) {
     agents.employed[i] = 1;
     return;
   }
@@ -104,7 +105,7 @@ function processEmploymentChanges(i, state) {
   // rehiring based on economic conditions
   const economicStrength = metrics.gdp / 25000000; // normalize approx
 
-  if (!agents.employed[i] && Math.random() < 0.01 * economicStrength) {
+  if (!agents.employed[i] && random() < 0.01 * economicStrength) {
     agents.employed[i] = 1;
   }
 }
@@ -114,7 +115,7 @@ function triggerEconomicShock(state) {
   const affectedAgents = Math.floor(agentCount * 0.15);
 
   for (let i = 0; i < affectedAgents; i++) {
-    const index = Math.floor(Math.random() * agentCount);
+    const index = randomInt(agentCount);
 
     agents.employed[index] = 0;
     agents.happiness[index] *= 0.8;

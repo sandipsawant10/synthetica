@@ -3,11 +3,18 @@ import axios from "axios";
 const API_URL = "http://localhost:3000/history";
 
 export const transformHistoryPayload = (historyData) => {
-  if (!historyData || !Array.isArray(historyData.days)) {
+  if (!historyData) {
     return [];
   }
 
-  return historyData.days.map((day, index) => ({
+  const inferredDays = Array.isArray(historyData.gdp)
+    ? historyData.gdp.map((_, index) => index + 1)
+    : [];
+  const days = Array.isArray(historyData.days)
+    ? historyData.days
+    : inferredDays;
+
+  return days.map((day, index) => ({
     day,
     gdp: historyData.gdp[index],
     crime: historyData.crime[index],
