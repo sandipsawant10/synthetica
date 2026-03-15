@@ -12,9 +12,42 @@ function formatAverageGdp(value) {
 
 function DashboardStats({ worldState, avgPanic, maxPanic }) {
   const summary = worldState.summary;
+  const safeMaxDays = Math.max(worldState.maxDays || 0, 1);
+  const computedProgress =
+    typeof worldState.progress === "number"
+      ? worldState.progress
+      : worldState.day / safeMaxDays;
+  const progressPercent = Math.max(0, Math.min(computedProgress * 100, 100));
 
   return (
     <>
+      <h2>Simulation Progress</h2>
+      <p>
+        Day: {worldState.day} / {worldState.maxDays}
+      </p>
+      <p>Completion: {progressPercent.toFixed(1)}%</p>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "520px",
+          height: "14px",
+          borderRadius: "999px",
+          background: "rgba(255,255,255,0.15)",
+          overflow: "hidden",
+          marginBottom: "12px",
+        }}
+      >
+        <div
+          style={{
+            width: `${progressPercent}%`,
+            height: "100%",
+            background:
+              "linear-gradient(90deg, rgba(16,185,129,0.95), rgba(59,130,246,0.95))",
+            transition: "width 250ms ease",
+          }}
+        />
+      </div>
+
       <h2>Day: {worldState.day}</h2>
       <p>GDP: {worldState.gdp.toFixed(0)}</p>
       <p>Crime Rate: {worldState.crimeRate}</p>
