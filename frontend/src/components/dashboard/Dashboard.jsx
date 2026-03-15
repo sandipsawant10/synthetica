@@ -8,6 +8,7 @@ import {
   stepSimulation,
   resetSimulation,
   updateSimulationConfig,
+  updateSimulationSpeed,
   fetchSimulationRuns,
   fetchSimulationRunById,
   fetchScenarioTemplates,
@@ -270,6 +271,15 @@ function Dashboard() {
     }
   };
 
+  const handleSetSimulationSpeed = async (speed) => {
+    try {
+      await updateSimulationSpeed(speed);
+      mergeWorldState({ simulationSpeed: speed });
+    } catch (error) {
+      console.error("Error updating simulation speed:", error);
+    }
+  };
+
   const panicLevels = worldState.panicLevels || [];
   const avgPanic =
     panicLevels.length > 0
@@ -343,6 +353,7 @@ function Dashboard() {
         onStep={handleStep}
         onReset={handleReset}
         onSetMaxDays={handleSetMaxDays}
+        onSetSimulationSpeed={handleSetSimulationSpeed}
       />
     </div>
   );

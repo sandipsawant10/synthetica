@@ -15,7 +15,12 @@ import {
   getSimulationRunForExport,
   listSimulationRuns,
 } from "./services/simulationRunService.js";
-import { getScenarioByKey, getScenarioTemplates } from "./config/scenarios.js";
+import {
+  getScenarioByKey,
+  getScenarioDetailByKey,
+  getScenarioTemplates,
+  listScenarios,
+} from "./config/scenarios.js";
 import { normalizeSeed } from "./simulation/rng.js";
 
 let simulationStatus = "idle";
@@ -30,6 +35,8 @@ const POLICY_LIMITS = {
   welfareRate: { min: 0, max: 1 },
   stimulusMultiplier: { min: 0, max: 5 },
 };
+
+const SIMULATION_SPEEDS = new Set(["normal", "fast"]);
 
 function validatePolicyPayload(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -183,6 +190,37 @@ app.post("/event/economic-shock", (req, res) => {
   return res.json({ success: true });
 });
 
+app.get("/events/timeline", async (req, res) => {
+  const timeline = await workerManager.getEventTimeline();
+
+  if (timeline?.error) {
+    return res.status(500).json({
+      success: false,
+      message: timeline.error,
+    });
+  }
+
+  return res.json({
+    success: true,
+    ...timeline,
+  });
+});
+
+app.delete("/events/timeline", async (req, res) => {
+  const result = await workerManager.clearEventTimeline();
+
+  if (result?.error) {
+    return res.status(500).json({
+      success: false,
+      message: result.error,
+    });
+  }
+
+  return res.json({
+    success: true,
+  });
+});
+
 app.post("/simulation/pause", (req, res) => {
   workerManager.pauseSimulation();
   return res.json({
@@ -200,8 +238,12 @@ app.post("/simulation/start", (req, res) => {
   }
 
   const requestedScenario = req.body?.scenario || "baseline";
+  const requestedRunName =
+    typeof req.body?.runName === "string" ? req.body.runName.trim() : "";
+  const runName = requestedRunName || `${requestedScenario}_run_${Date.now()}`;
   const seed = normalizeSeed(req.body?.seed);
   const scenario = getScenarioByKey(requestedScenario);
+  let appliedMaxDays;
 
   if (!scenario) {
     return res.status(400).json({
@@ -211,18 +253,62 @@ app.post("/simulation/start", (req, res) => {
     });
   }
 
+  const requestedMaxDays = req.body?.maxDays;
+  if (typeof requestedMaxDays !== "undefined") {
+    const maxDays = parseMaxDays(requestedMaxDays);
+
+    if (maxDays === null) {
+      return res.status(400).json({
+        success: false,
+        message: "maxDays must be a positive integer.",
+      });
+    }
+
+    workerManager.updateSimulationConfig({ maxDays });
+    appliedMaxDays = maxDays;
+  }
+
   workerManager.updatePolicy(scenario.policy);
   updatePolicy(scenario.policy);
 
-  workerManager.startSimulation({ seed });
+  workerManager.startSimulation({
+    seed,
+    scenario: requestedScenario,
+    runName,
+  });
   simulationStatus = "running";
 
   return res.json({
     success: true,
     status: simulationStatus,
+    runName,
     scenario: requestedScenario,
     seed,
+    maxDays: appliedMaxDays,
     policy: scenario.policy,
+  });
+});
+
+app.get("/scenarios", (req, res) => {
+  return res.json({
+    success: true,
+    data: listScenarios(),
+  });
+});
+
+app.get("/scenarios/:id", (req, res) => {
+  const scenario = getScenarioDetailByKey(req.params.id);
+
+  if (!scenario) {
+    return res.status(404).json({
+      success: false,
+      error: `Scenario not found: ${req.params.id}`,
+    });
+  }
+
+  return res.json({
+    success: true,
+    data: scenario,
   });
 });
 
@@ -275,6 +361,24 @@ app.post("/simulation/config", (req, res) => {
   });
 });
 
+app.post("/simulation/speed", (req, res) => {
+  const speed = req.body?.speed;
+
+  if (!SIMULATION_SPEEDS.has(speed)) {
+    return res.status(400).json({
+      success: false,
+      message: `speed must be one of: ${Array.from(SIMULATION_SPEEDS).join(", ")}.`,
+    });
+  }
+
+  workerManager.setSimulationSpeed(speed);
+
+  return res.json({
+    success: true,
+    speed,
+  });
+});
+
 app.get("/simulation/status", async (req, res) => {
   const status = await workerManager.getStatus();
 
@@ -292,17 +396,23 @@ app.get("/simulation/status", async (req, res) => {
 });
 
 app.get("/simulation/runs", async (req, res) => {
-  const requestedLimit = Number.parseInt(req.query.limit, 10);
+  const requestedPage = parseInt(req.query.page, 10);
+  const requestedLimit = parseInt(req.query.limit, 10);
+  const page =
+    Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const limit =
     Number.isInteger(requestedLimit) && requestedLimit > 0
       ? Math.min(requestedLimit, 200)
-      : 50;
+      : 20;
+  const scenario = req.query.scenario || undefined;
+  const search = req.query.search || undefined;
 
   try {
-    const runs = await listSimulationRuns(limit);
+    const result = await listSimulationRuns({ page, limit, scenario, search });
     return res.json({
       success: true,
-      data: runs,
+      data: result.runs,
+      pagination: result.pagination,
     });
   } catch (error) {
     return res.status(500).json({
@@ -479,8 +589,22 @@ app.get("/runs/compare", async (req, res) => {
 
 app.get("/runs", async (req, res) => {
   try {
-    const runs = await listSimulationRuns(200);
-    return res.json(runs);
+    const requestedPage = parseInt(req.query.page, 10);
+    const requestedLimit = parseInt(req.query.limit, 10);
+    const page =
+      Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+    const limit =
+      Number.isInteger(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 200)
+        : 20;
+    const scenario = req.query.scenario || undefined;
+    const search = req.query.search || undefined;
+
+    const result = await listSimulationRuns({ page, limit, scenario, search });
+    return res.json({
+      runs: result.runs,
+      pagination: result.pagination,
+    });
   } catch (error) {
     return res.status(500).json({
       error: `Failed to fetch runs: ${error.message}`,

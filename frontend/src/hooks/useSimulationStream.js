@@ -24,6 +24,7 @@ const initialWorldState = {
   panicLevels: [],
   running: false,
   maxDays: 500,
+  simulationSpeed: "normal",
   progress: 0,
   limitReached: false,
   summary: null,

@@ -34,12 +34,81 @@ let autoFakeNewsEnabled = false;
 let tickCount = 0;
 let intervalHandle = null;
 let maxDays = DEFAULT_MAX_DAYS;
+let simulationSpeed = "normal";
 let runTotals = {
   maxPanicLevel: 0,
 };
 let simulationSummary = null;
 let runMetadata = null;
 const TICK_INTERVAL = 1000; // 1 second
+const SPEED_CONFIG = {
+  normal: 1,
+  fast: 50,
+};
+const FAST_MODE_UPDATE_INTERVAL_DAYS = 10;
+const CRIME_WAVE_THRESHOLD_RATIO = 0.03;
+const CRIME_WAVE_RECOVERY_RATIO = 0.015;
+let crimeWaveActive = false;
+
+function generateRunName(scenario) {
+  const safeScenario =
+    typeof scenario === "string" && scenario.trim() !== ""
+      ? scenario.trim()
+      : "baseline";
+  return `${safeScenario}_run_${Date.now()}`;
+}
+
+function resolveRunName(requestedRunName, scenario) {
+  if (typeof requestedRunName === "string" && requestedRunName.trim() !== "") {
+    return requestedRunName.trim();
+  }
+
+  return generateRunName(scenario);
+}
+
+function logTimelineEvent(type, source, message, details = {}) {
+  const event = {
+    id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: Date.now(),
+    day: simulationState.metrics.day,
+    type,
+    source,
+    message,
+    details,
+  };
+
+  simulationState.events.push(event);
+
+  parentPort.postMessage(createEvent(EVENT_TYPES.TIMELINE_EVENT, event));
+}
+
+function clearUnifiedEventLog() {
+  simulationState.events.length = 0;
+}
+
+function getUnifiedEventLog() {
+  return simulationState.events;
+}
+
+function getTicksPerSecond() {
+  return SPEED_CONFIG[simulationSpeed] ?? SPEED_CONFIG.normal;
+}
+
+function shouldEmitStateUpdate(day) {
+  if (simulationSpeed === "normal") {
+    return true;
+  }
+
+  return day % FAST_MODE_UPDATE_INTERVAL_DAYS === 0 || day >= maxDays;
+}
+
+function shouldEmitAnalyticsUpdate(day) {
+  if (simulationSpeed === "normal") {
+    return tickCount % 5 === 0;
+  }
+
+  return day % FAST_MODE_UPDATE_INTERVAL_DAYS === 0 || day >= maxDays;
+}
 
 function getProgressPayload() {
   const day = simulationState.metrics.day;
@@ -59,8 +128,44 @@ function resetRunSummary() {
   simulationSummary = null;
 }
 
+function resetMetrics() {
+  const { metrics } = simulationState;
+  metrics.day = 0;
+  metrics.gdp = 0;
+  metrics.crime = 0;
+  metrics.unemployment = 0;
+  metrics.avyHappiness = 0;
+  metrics.totalWealth = 0;
+  metrics.topTenWealthShare = 0;
+  metrics.bottomFiftyWealthShare = 0;
+  metrics.stimulusActive = false;
+  metrics.fakeNewsEvent = false;
+}
+
+function resetSimulationRunState() {
+  resetMetrics();
+  forceFakeNewsNextTick = false;
+  autoFakeNewsEnabled = false;
+  crimeWaveActive = false;
+  tickCount = 0;
+  resetRunSummary();
+  clearHistory();
+  clearUnifiedEventLog();
+  initializeCity();
+}
+
 function finalizeSimulation() {
   simulationRunning = false;
+  logTimelineEvent(
+    "SIMULATION_COMPLETED",
+    "system",
+    "Simulation run completed",
+    {
+      day: simulationState.metrics.day,
+      maxDays,
+    },
+  );
+
   const historySnapshot = getHistory();
   const persistedSummary = calculateSummary(historySnapshot, {
     maxPanicLevel: runTotals.maxPanicLevel,
@@ -79,10 +184,19 @@ function finalizeSimulation() {
 
   const completedRunPayload = {
     runId: runMetadata?.runId,
+    runName: runMetadata?.runName,
+    scenario: runMetadata?.scenario,
     startTime: runMetadata?.startTime,
+    maxDays,
+    speedMode: simulationSpeed,
+    duration:
+      typeof runMetadata?.startedAtMs === "number"
+        ? Math.max((Date.now() - runMetadata.startedAtMs) / 1000, 0)
+        : null,
     parameters: runMetadata?.parameters,
     summary: persistedSummary,
     history: historySnapshot,
+    events: [...getUnifiedEventLog()],
   };
 
   console.log(
@@ -137,9 +251,27 @@ function runSimulationTick() {
   if (forceFakeNewsNextTick || autoFakeNewsEnabled) {
     triggerFakeNewsEvent(state);
     fakeNewsTriggeredThisTick = true;
+    logTimelineEvent(
+      "FAKE_NEWS",
+      forceFakeNewsNextTick ? "manual" : "automatic",
+      "Fake news event triggered",
+      {
+        source: forceFakeNewsNextTick ? "manual" : "auto",
+      },
+    );
     forceFakeNewsNextTick = false;
   } else {
     fakeNewsTriggeredThisTick = processFakeNewsEvent(state);
+    if (fakeNewsTriggeredThisTick) {
+      logTimelineEvent(
+        "FAKE_NEWS",
+        "probabilistic",
+        "Fake news event triggered",
+        {
+          source: "stochastic",
+        },
+      );
+    }
   }
 
   // Process panic propagation through social network
@@ -218,6 +350,29 @@ function runSimulationTick() {
   metrics.bottomFiftyWealthShare =
     totalWealth === 0 ? 0 : bottomWealth / totalWealth;
 
+  const crimeWaveStartThreshold = Math.max(
+    10,
+    Math.floor(agentCount * CRIME_WAVE_THRESHOLD_RATIO),
+  );
+  const crimeWaveEndThreshold = Math.max(
+    5,
+    Math.floor(agentCount * CRIME_WAVE_RECOVERY_RATIO),
+  );
+
+  if (!crimeWaveActive && metrics.crime >= crimeWaveStartThreshold) {
+    crimeWaveActive = true;
+    logTimelineEvent("CRIME_WAVE", "emergent", "Crime wave detected", {
+      crimeCount: metrics.crime,
+      threshold: crimeWaveStartThreshold,
+    });
+  } else if (crimeWaveActive && metrics.crime <= crimeWaveEndThreshold) {
+    crimeWaveActive = false;
+    logTimelineEvent("CRIME_WAVE", "emergent", "Crime wave normalized", {
+      crimeCount: metrics.crime,
+      threshold: crimeWaveEndThreshold,
+    });
+  }
+
   const avgPanic =
     agents.panic.reduce((sum, value) => sum + value, 0) / agentCount;
   const maxPanic = Math.max(...agents.panic);
@@ -234,31 +389,35 @@ function runSimulationTick() {
   // Record historical data
   recordSnapshot(state);
 
-  // Emit fast update (real-time metrics every tick)
-  parentPort.postMessage(
-    createEvent(EVENT_TYPES.STATE_UPDATE, {
-      day: metrics.day,
-      gdp: metrics.gdp,
-      crimeRate: metrics.crime,
-      avgHappiness: metrics.avyHappiness,
-      running: simulationRunning,
-      maxDays,
-      limitReached: false,
-      summary: simulationSummary,
-      unemployment: metrics.unemployment,
-      policeStrength: policy.policeStrength,
-      fakeNewsEvent: metrics.fakeNewsEvent,
-      autoFakeNewsEnabled,
-      panicLevels: Array.from(agents.panic),
-    }),
-  );
+  if (shouldEmitStateUpdate(metrics.day)) {
+    parentPort.postMessage(
+      createEvent(EVENT_TYPES.STATE_UPDATE, {
+        day: metrics.day,
+        gdp: metrics.gdp,
+        crimeRate: metrics.crime,
+        avgHappiness: metrics.avyHappiness,
+        running: simulationRunning,
+        maxDays,
+        limitReached: false,
+        summary: simulationSummary,
+        unemployment: metrics.unemployment,
+        policeStrength: policy.policeStrength,
+        fakeNewsEvent: metrics.fakeNewsEvent,
+        autoFakeNewsEnabled,
+        simulationSpeed,
+        panicLevels: Array.from(agents.panic),
+      }),
+    );
+  }
 
-  parentPort.postMessage(
-    createEvent(EVENT_TYPES.PROGRESS, getProgressPayload()),
-  );
+  if (shouldEmitStateUpdate(metrics.day)) {
+    parentPort.postMessage(
+      createEvent(EVENT_TYPES.PROGRESS, getProgressPayload()),
+    );
+  }
 
   // Emit slow update (heavy analytics every 5 ticks)
-  if (tickCount % 5 === 0) {
+  if (shouldEmitAnalyticsUpdate(metrics.day)) {
     parentPort.postMessage(
       createEvent(EVENT_TYPES.METRICS_UPDATE, {
         taxRate: policy.taxRate,
@@ -290,13 +449,25 @@ function initializeCity() {
 function startSimulation(options = {}) {
   console.log("[WORKER] Starting simulation");
   const activeSeed = setSeed(options.seed);
-  resetRunSummary();
-  clearHistory();
-  initializeCity();
+  const activeScenario =
+    typeof options.scenario === "string" && options.scenario.trim() !== ""
+      ? options.scenario.trim()
+      : "baseline";
+  const activeRunName = resolveRunName(options.runName, activeScenario);
+
+  resetSimulationRunState();
+  logTimelineEvent("SIMULATION_STARTED", "system", "Simulation run started", {
+    seed: activeSeed,
+    scenario: activeScenario,
+    runName: activeRunName,
+  });
 
   runMetadata = {
     runId: `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    runName: activeRunName,
+    scenario: activeScenario,
     startTime: new Date().toISOString(),
+    startedAtMs: Date.now(),
     parameters: {
       taxRate: simulationState.policy.taxRate,
       policeStrength: simulationState.policy.policeStrength,
@@ -308,12 +479,28 @@ function startSimulation(options = {}) {
 
   simulationRunning = true;
   if (!intervalHandle) {
-    intervalHandle = setInterval(runSimulationTick, TICK_INTERVAL);
+    intervalHandle = setInterval(() => {
+      const ticksPerSecond = getTicksPerSecond();
+
+      for (let i = 0; i < ticksPerSecond; i++) {
+        if (!simulationRunning) {
+          break;
+        }
+
+        runSimulationTick();
+
+        if (!simulationRunning || simulationState.metrics.day >= maxDays) {
+          break;
+        }
+      }
+    }, TICK_INTERVAL);
   }
   parentPort.postMessage(
     createEvent(EVENT_TYPES.SIMULATION_STARTED, {
       seed: activeSeed,
       runId: runMetadata.runId,
+      runName: activeRunName,
+      scenario: activeScenario,
     }),
   );
 
@@ -328,6 +515,7 @@ function startSimulation(options = {}) {
 function pauseSimulation() {
   console.log("[WORKER] Pausing simulation");
   simulationRunning = false;
+  logTimelineEvent("SIMULATION_PAUSED", "manual", "Simulation paused");
   parentPort.postMessage(createEvent(EVENT_TYPES.SIMULATION_PAUSED));
 }
 
@@ -337,6 +525,7 @@ function pauseSimulation() {
 function resumeSimulation() {
   console.log("[WORKER] Resuming simulation");
   simulationRunning = true;
+  logTimelineEvent("SIMULATION_RESUMED", "manual", "Simulation resumed");
   parentPort.postMessage(createEvent(EVENT_TYPES.SIMULATION_RESUMED));
 }
 
@@ -358,31 +547,26 @@ function resetSimulation() {
     intervalHandle = null;
   }
 
-  // Reset metrics
-  const { metrics } = simulationState;
-  metrics.day = 0;
-  metrics.gdp = 0;
-  metrics.crime = 0;
-  metrics.unemployment = 0;
-  metrics.avyHappiness = 0;
-  metrics.totalWealth = 0;
-  metrics.topTenWealthShare = 0;
-  metrics.bottomFiftyWealthShare = 0;
-  metrics.stimulusActive = false;
-  metrics.fakeNewsEvent = false;
-
-  forceFakeNewsNextTick = false;
-  autoFakeNewsEnabled = false;
-  tickCount = 0;
+  resetSimulationRunState();
   simulationRunning = true;
-  resetRunSummary();
-  clearHistory();
-
-  // Reinitialize agents
-  initializeCity();
+  logTimelineEvent("SIMULATION_RESET", "manual", "Simulation reset");
 
   // Restart interval
-  intervalHandle = setInterval(runSimulationTick, TICK_INTERVAL);
+  intervalHandle = setInterval(() => {
+    const ticksPerSecond = getTicksPerSecond();
+
+    for (let i = 0; i < ticksPerSecond; i++) {
+      if (!simulationRunning) {
+        break;
+      }
+
+      runSimulationTick();
+
+      if (!simulationRunning || simulationState.metrics.day >= maxDays) {
+        break;
+      }
+    }
+  }, TICK_INTERVAL);
   parentPort.postMessage(createEvent(EVENT_TYPES.SIMULATION_RESET));
   parentPort.postMessage(
     createEvent(EVENT_TYPES.PROGRESS, getProgressPayload()),
@@ -403,7 +587,32 @@ function getStatus() {
     summary: simulationSummary,
     seed: runMetadata?.parameters?.seed ?? getSeed(),
     progress: getProgressPayload().progress,
+    simulationSpeed,
   };
+}
+
+function setSimulationSpeed(speed) {
+  if (!Object.prototype.hasOwnProperty.call(SPEED_CONFIG, speed)) {
+    throw new Error(`Unsupported speed mode: ${speed}`);
+  }
+
+  simulationSpeed = speed;
+  logTimelineEvent(
+    "SIMULATION_SPEED_CHANGED",
+    "manual",
+    "Simulation speed changed",
+    {
+      speed: simulationSpeed,
+    },
+  );
+
+  parentPort.postMessage(
+    createEvent(EVENT_TYPES.STATE_UPDATE, {
+      simulationSpeed,
+    }),
+  );
+
+  parentPort.postMessage(createEvent(EVENT_TYPES.STATUS_RESPONSE, getStatus()));
 }
 
 function setSimulationConfig(config = {}) {
@@ -470,6 +679,11 @@ parentPort.on("message", (command) => {
         console.log(`[WORKER] Simulation config updated: maxDays=${maxDays}`);
         break;
 
+      case COMMAND_TYPES.SET_SPEED:
+        setSimulationSpeed(command.payload?.speed);
+        console.log(`[WORKER] Simulation speed updated: ${simulationSpeed}`);
+        break;
+
       case COMMAND_TYPES.UPDATE_POLICY:
         updatePolicy(command.payload);
         console.log(`[WORKER] Policy updated:`, command.payload);
@@ -478,11 +692,24 @@ parentPort.on("message", (command) => {
       case COMMAND_TYPES.TRIGGER_FAKE_NEWS:
         forceFakeNewsNextTick = true;
         console.log("[WORKER] Fake news will trigger next tick");
+        logTimelineEvent(
+          "FAKE_NEWS",
+          "manual",
+          "Manual fake news event scheduled for next tick",
+        );
         break;
 
       case COMMAND_TYPES.TOGGLE_AUTO_FAKE_NEWS:
         autoFakeNewsEnabled = !autoFakeNewsEnabled;
         console.log(`[WORKER] Auto fake news toggled: ${autoFakeNewsEnabled}`);
+        logTimelineEvent(
+          "AUTO_FAKE_NEWS_TOGGLED",
+          "manual",
+          autoFakeNewsEnabled
+            ? "Auto fake news enabled"
+            : "Auto fake news disabled",
+          { autoFakeNewsEnabled },
+        );
         parentPort.postMessage(
           createEvent(EVENT_TYPES.STATE_UPDATE, {
             autoFakeNewsEnabled,
@@ -493,6 +720,29 @@ parentPort.on("message", (command) => {
       case COMMAND_TYPES.TRIGGER_ECONOMIC_SHOCK:
         triggerEconomicShockModel(simulationState);
         console.log("[WORKER] Economic shock triggered");
+        logTimelineEvent(
+          "ECONOMIC_SHOCK",
+          "manual",
+          "Economic shock event triggered",
+        );
+        break;
+
+      case COMMAND_TYPES.GET_EVENT_TIMELINE:
+        parentPort.postMessage(
+          createEvent(EVENT_TYPES.EVENT_TIMELINE_RESPONSE, {
+            events: getUnifiedEventLog(),
+            total: getUnifiedEventLog().length,
+          }),
+        );
+        break;
+
+      case COMMAND_TYPES.CLEAR_EVENT_TIMELINE:
+        clearUnifiedEventLog();
+        parentPort.postMessage(
+          createEvent(EVENT_TYPES.EVENT_TIMELINE_CLEARED, {
+            success: true,
+          }),
+        );
         break;
 
       case COMMAND_TYPES.GET_STATUS:

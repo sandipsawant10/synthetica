@@ -8,9 +8,29 @@ const simulationRunSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    runName: {
+      type: String,
+      default: null,
+    },
+    scenario: {
+      type: String,
+      default: null,
+    },
     startTime: {
       type: Date,
       required: true,
+    },
+    maxDays: {
+      type: Number,
+      default: null,
+    },
+    speedMode: {
+      type: String,
+      default: null,
+    },
+    duration: {
+      type: Number,
+      default: null,
     },
     parameters: {
       taxRate: Number,
@@ -36,6 +56,17 @@ const simulationRunSchema = new mongoose.Schema(
       happiness: [Number],
       inequality: [Number],
     },
+    events: [
+      {
+        id: String,
+        timestamp: Number,
+        day: Number,
+        type: String,
+        source: String,
+        message: String,
+        details: mongoose.Schema.Types.Mixed,
+      },
+    ],
   },
   {
     timestamps: true,

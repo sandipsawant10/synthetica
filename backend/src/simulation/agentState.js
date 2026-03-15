@@ -38,6 +38,8 @@ const simulationState = {
     inequality: [],
   },
 
+  events: [],
+
   policy: {
     taxRate: 0.1,
     policeStrength: 0.2,

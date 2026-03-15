@@ -190,10 +190,16 @@ function handleWorkerMessage(message) {
         break;
 
       case EVENT_TYPES.STATUS_RESPONSE:
+      case EVENT_TYPES.EVENT_TIMELINE_RESPONSE:
+      case EVENT_TYPES.EVENT_TIMELINE_CLEARED:
         // Handle status queries
         if (messageHandlers[message.type]) {
           messageHandlers[message.type](message.payload);
         }
+        break;
+
+      case EVENT_TYPES.TIMELINE_EVENT:
+        io.emit("timelineEvent", message.payload);
         break;
 
       default:
@@ -265,6 +271,10 @@ export function updateSimulationConfig(config) {
   return sendCommand(COMMAND_TYPES.SET_SIMULATION_CONFIG, config);
 }
 
+export function setSimulationSpeed(speed) {
+  return sendCommand(COMMAND_TYPES.SET_SPEED, { speed });
+}
+
 /**
  * Policy updates
  */
@@ -311,6 +321,42 @@ export function getStatus() {
   });
 }
 
+export function getEventTimeline() {
+  return new Promise((resolve) => {
+    const handler = (payload) => {
+      delete messageHandlers[EVENT_TYPES.EVENT_TIMELINE_RESPONSE];
+      resolve(payload);
+    };
+
+    messageHandlers[EVENT_TYPES.EVENT_TIMELINE_RESPONSE] = handler;
+
+    sendCommand(COMMAND_TYPES.GET_EVENT_TIMELINE);
+
+    setTimeout(() => {
+      delete messageHandlers[EVENT_TYPES.EVENT_TIMELINE_RESPONSE];
+      resolve({ error: "Event timeline request timeout" });
+    }, 5000);
+  });
+}
+
+export function clearEventTimeline() {
+  return new Promise((resolve) => {
+    const handler = (payload) => {
+      delete messageHandlers[EVENT_TYPES.EVENT_TIMELINE_CLEARED];
+      resolve(payload);
+    };
+
+    messageHandlers[EVENT_TYPES.EVENT_TIMELINE_CLEARED] = handler;
+
+    sendCommand(COMMAND_TYPES.CLEAR_EVENT_TIMELINE);
+
+    setTimeout(() => {
+      delete messageHandlers[EVENT_TYPES.EVENT_TIMELINE_CLEARED];
+      resolve({ error: "Clear event timeline request timeout" });
+    }, 5000);
+  });
+}
+
 /**
  * Terminate the worker
  */
@@ -333,10 +379,13 @@ export default {
   stepSimulation,
   resetSimulation,
   updateSimulationConfig,
+  setSimulationSpeed,
   updatePolicy,
   triggerFakeNews,
   toggleAutoFakeNews,
   triggerEconomicShock,
   getStatus,
+  getEventTimeline,
+  clearEventTimeline,
   terminateWorker,
 };

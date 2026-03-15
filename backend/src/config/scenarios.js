@@ -60,4 +60,25 @@ export function getScenarioByKey(key) {
   return SCENARIOS[key] || null;
 }
 
+export function listScenarios() {
+  return Object.entries(SCENARIOS).map(([id, scenario]) => ({
+    id,
+    name: scenario.name,
+    label: scenario.label,
+    description: scenario.description,
+  }));
+}
+
+export function getScenarioDetailByKey(key) {
+  const scenario = getScenarioByKey(key);
+  if (!scenario) {
+    return null;
+  }
+
+  return {
+    id: key,
+    ...scenario,
+  };
+}
+
 export default SCENARIOS;

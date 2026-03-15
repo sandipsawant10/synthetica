@@ -19,6 +19,7 @@ function DashboardControls({
   onStep,
   onReset,
   onSetMaxDays,
+  onSetSimulationSpeed,
 }) {
   const dayPresets = [100, 500, 1000];
   const selectedScenarioMeta =
@@ -108,6 +109,29 @@ function DashboardControls({
             Run {days} days
           </Button>
         ))}
+      </div>
+
+      <div style={{ marginBottom: "20px" }}>
+        <h3>Simulation Speed</h3>
+        <Button
+          variant={
+            worldState.simulationSpeed === "normal" ? "contained" : "outlined"
+          }
+          color="primary"
+          onClick={() => onSetSimulationSpeed("normal")}
+          style={{ marginRight: "8px" }}
+        >
+          Normal Speed (1 day/s)
+        </Button>
+        <Button
+          variant={
+            worldState.simulationSpeed === "fast" ? "contained" : "outlined"
+          }
+          color="warning"
+          onClick={() => onSetSimulationSpeed("fast")}
+        >
+          Fast Mode (50 days/s)
+        </Button>
       </div>
 
       <div style={{ marginBottom: "20px" }}>

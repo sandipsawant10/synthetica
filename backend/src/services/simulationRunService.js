@@ -26,6 +26,24 @@ function sanitizeHistory(history = {}) {
   };
 }
 
+function sanitizeEvents(events = []) {
+  if (!Array.isArray(events)) {
+    return [];
+  }
+
+  return events.map((event) => ({
+    id: typeof event?.id === "string" ? event.id : null,
+    timestamp:
+      typeof event?.timestamp === "number" ? event.timestamp : Date.now(),
+    day: typeof event?.day === "number" ? event.day : 0,
+    type: typeof event?.type === "string" ? event.type : "UNKNOWN",
+    source: typeof event?.source === "string" ? event.source : "unknown",
+    message: typeof event?.message === "string" ? event.message : "",
+    details:
+      event?.details && typeof event.details === "object" ? event.details : {},
+  }));
+}
+
 async function findRunForComparison(idOrRunId, includeHistory = false) {
   const projection = includeHistory
     ? { _id: 0, runId: 1, summary: 1, history: 1 }
@@ -48,25 +66,88 @@ async function findRunForComparison(idOrRunId, includeHistory = false) {
 }
 
 export async function saveSimulationRun(runPayload) {
-  const saved = await SimulationRun.create(runPayload);
+  const sanitizedPayload = {
+    ...runPayload,
+    runName:
+      typeof runPayload?.runName === "string" &&
+      runPayload.runName.trim() !== ""
+        ? runPayload.runName.trim()
+        : null,
+    scenario:
+      typeof runPayload?.scenario === "string" &&
+      runPayload.scenario.trim() !== ""
+        ? runPayload.scenario.trim()
+        : null,
+    maxDays:
+      typeof runPayload?.maxDays === "number" &&
+      Number.isFinite(runPayload.maxDays)
+        ? runPayload.maxDays
+        : null,
+    speedMode:
+      typeof runPayload?.speedMode === "string" &&
+      runPayload.speedMode.trim() !== ""
+        ? runPayload.speedMode.trim()
+        : null,
+    duration:
+      typeof runPayload?.duration === "number" &&
+      Number.isFinite(runPayload.duration)
+        ? runPayload.duration
+        : null,
+    history: sanitizeHistory(runPayload?.history),
+    summary: sanitizeSummary(runPayload?.summary),
+    events: sanitizeEvents(runPayload?.events),
+  };
+
+  const saved = await SimulationRun.create(sanitizedPayload);
   return saved.toObject();
 }
 
-export async function listSimulationRuns(limit = 50) {
-  return SimulationRun.find(
-    {},
-    {
-      _id: 0,
-      runId: 1,
-      startTime: 1,
-      createdAt: 1,
-      parameters: 1,
-      summary: 1,
+export async function listSimulationRuns({
+  page = 1,
+  limit = 20,
+  scenario,
+  search,
+} = {}) {
+  const query = {};
+  if (scenario) query.scenario = scenario;
+  if (search) query.runName = { $regex: search, $options: "i" };
+
+  const safePage = Math.max(1, page);
+  const safeLimit = Math.min(Math.max(1, limit), 200);
+  const skip = (safePage - 1) * safeLimit;
+
+  const projection = {
+    _id: 0,
+    runId: 1,
+    runName: 1,
+    scenario: 1,
+    startTime: 1,
+    createdAt: 1,
+    maxDays: 1,
+    speedMode: 1,
+    duration: 1,
+    parameters: 1,
+    summary: 1,
+  };
+
+  const [runs, total] = await Promise.all([
+    SimulationRun.find(query, projection)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(safeLimit)
+      .lean(),
+    SimulationRun.countDocuments(query),
+  ]);
+
+  return {
+    runs,
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit),
     },
-  )
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .lean();
+  };
 }
 
 export async function getSimulationRunById(runId) {
